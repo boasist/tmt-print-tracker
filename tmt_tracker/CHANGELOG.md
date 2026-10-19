@@ -7,6 +7,8 @@
   project is a whole TMT or a parts order with your own quantities; its card shows progress and what's still needed,
   can take parts from the spares, and is marked done when assembled or shipped. Move a print to another project in
   Recent prints. Without projects everything works as before.
+- A project's card lists its parts with − / + to correct them (a part that failed on a plate that otherwise
+  finished), and **print list** prints a checklist of what's printed and what's left.
 - **Not for a TMT**: choose it under Printing for (or on an unrecognised print) for prints that aren't TMT parts; they
   are logged but never counted or asked about.
 - Moonraker printers (Snapmaker U1 and other Klipper printers) through the

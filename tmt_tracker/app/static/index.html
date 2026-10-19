@@ -52,6 +52,9 @@ input[type=number]{width:64px}
 .for{margin-top:6px;font-size:13px}
 .order-parts{display:grid;gap:4px 14px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));margin-top:8px}
 .order-parts label{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:13px}
+#printview{display:none}
+@media print{body>*:not(#printview){display:none!important}#printview{display:block}body{background:#fff;color:#000}
+  #printview table{border:none}#printview th,#printview td{border-bottom:1px solid #999;padding:4px 8px;color:#000;background:#fff}}
 @media (max-width:600px){header,main{padding-left:16px;padding-right:16px}.hide-sm{display:none}}
 </style>
 </head>
@@ -96,6 +99,7 @@ input[type=number]{width:64px}
   </section>
 </main>
 <div class="toast" id="toast"></div>
+<div id="printview"></div>
 <script>
 const ACTIVE=['prepare','running','pause','slicing','init'];
 let D=null;
@@ -272,9 +276,14 @@ function renderProjects(){
       <div class="big">${pct}%</div><div class="bar ${x.complete?'ok':''}"><i style="width:${pct}%"></i></div>
       <div>${st} <span class="muted">${x.pieces} of ${x.of} pieces</span> ${printing(p.id)}</div>
       ${!p.done&&miss.length?`<div class="missing muted">Still needed: ${miss.slice(0,10).map(([pid,n])=>`${esc(pname(pid))} ×${n}`).join(', ')}${miss.length>10?`, and ${miss.length-10} more`:''}</div>`:''}
+      <details class="missing"><summary class="muted">parts (− / + to correct)</summary><table class="small-text" style="margin-top:6px">${
+        [...new Set([...Object.keys(x.needs||{}),...Object.keys(p.counts).filter(k=>p.counts[k]>0)])].map(pid=>`<tr><td>${esc(pname(pid))}</td>
+        <td class="num">${p.counts[pid]||0}${x.needs&&x.needs[pid]?' / '+x.needs[pid]:''}</td>
+        <td class="adj"><button class="small" onclick="adjust('${pid}',-1,'${p.id}')">−</button> <button class="small" onclick="adjust('${pid}',1,'${p.id}')">+</button></td></tr>`).join('')}</table></details>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         ${!p.done&&spare?`<button class="small" onclick="fillFromPool('${p.id}')">use spare parts</button>`:''}
         ${p.done?`<button class="small" onclick="projectDone('${p.id}',false)">reopen</button>`:`<button class="small${x.complete?' primary':''}" onclick="projectDone('${p.id}',true)">mark done</button>`}
+        <button class="small" onclick="printProject('${p.id}')">print list</button>
         <button class="small" onclick="renameProject('${p.id}')">rename</button>
         <button class="small" onclick="deleteProject('${p.id}')">remove</button></div></div>`;
   };
@@ -298,6 +307,24 @@ async function newProject(){
   const r=await act('project_add',{name:$('np-name').value,kind,needs});
   if(r.ok){$('np-name').value='';clearOrder();$('newproj').open=false;toast('Project created. Pick it under "Printing for" on a printer.');}
 }
+// A checklist of a project's parts, done and still to print, for printing on paper.
+function printProject(id){
+  const p=(D.state.projects||[]).find(x=>x.id===id), x=(D.projects||[]).find(x=>x.id===id); if(!p||!x) return;
+  const parts=cat().parts, byId=Object.fromEntries(parts.map(q=>[q.id,q]));
+  const ids=[...new Set([...Object.keys(x.needs),...Object.keys(p.counts).filter(k=>p.counts[k]>0)])];
+  const groups=[...new Set(ids.map(pid=>(byId[pid]||{}).group||'Other'))];
+  let rows='';
+  for(const g of groups){
+    rows+=`<tr><th colspan="5" style="text-align:left">${esc(g)}</th></tr>`;
+    for(const pid of ids.filter(pid=>((byId[pid]||{}).group||'Other')===g)){
+      const q=byId[pid]||{name:pid,code:''}, need=x.needs[pid]||0, have=p.counts[pid]||0, left=Math.max(0,need-have);
+      rows+=`<tr><td>${left?'☐':'☑'}</td><td>${esc(q.code)} ${esc(q.name)}</td><td>${esc(q.material||'')}</td><td>${have} of ${need}</td><td>${left?left+' to print':'done'}</td></tr>`;
+    }
+  }
+  $('printview').innerHTML=`<h2 style="color:#000">${esc(p.name)}</h2><p>${p.kind==='order'?'Parts order':'TMT'} · ${x.pieces} of ${x.of} pieces printed · ${new Date().toLocaleString()}</p>
+    <table><tr><th></th><th>Part</th><th>Material</th><th>Printed</th><th>Left</th></tr>${rows}</table>`;
+  window.print();
+}
 async function setPrinterProject(printer,project){await act('printer_project',{printer,project:project||null});}
 async function movePrint(id,project){await act('move_print',{log_id:id,project:project||null});}
 async function fillFromPool(id){const r=await act('fill_from_pool',{project:id}); if(r.ok) toast(`Moved ${r.moved} spare pieces into ${projName(id)}`);}
@@ -305,7 +332,7 @@ async function projectDone(id,done){if(!done||confirm(`Mark ${projName(id)} as d
 async function renameProject(id){const n=prompt('Project name',projName(id)); if(n) await act('project_update',{project:id,name:n});}
 async function deleteProject(id){if(confirm(`Remove ${projName(id)}? Its printed parts go back into the spare parts.`)) await act('project_delete',{project:id});}
 
-async function adjust(part,delta){const r=await act('adjust',{part,delta}); if(r.ok) toast(`${(cat().parts.find(p=>p.id===part)||{}).name}: ${r.count}`);}
+async function adjust(part,delta,project){const r=await act('adjust',{part,delta,project:project||null}); if(r.ok) toast(`${(cat().parts.find(p=>p.id===part)||{}).name}: ${r.count}`);}
 async function setTarget(d){await act('target',{count:Math.max(1,(D.state.target||1)+d)});}
 async function assembled(n){if(confirm(`Mark TMT #${n} as assembled? Its parts come out of the printed pool.`)){const r=await act('assembled'); if(r.ok) toast(`TMT #${n} assembled`);}}
 async function undo(id){if(confirm('Take this print back out of the counts?')) await act('undo',{log_id:id});}

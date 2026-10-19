@@ -284,7 +284,7 @@ class Tracker:
             needs, c = self.project_needs(p), p["counts"]
             got = sum(min(q, c.get(pid, 0)) for pid, q in needs.items())
             missing = {pid: q - c.get(pid, 0) for pid, q in needs.items() if c.get(pid, 0) < q}
-            out.append({"id": p["id"], "pieces": got, "of": sum(needs.values()), "missing": missing,
+            out.append({"id": p["id"], "pieces": got, "of": sum(needs.values()), "missing": missing, "needs": needs,
                         "complete": bool(needs) and not missing})
         return out
 
