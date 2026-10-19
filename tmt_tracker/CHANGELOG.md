@@ -16,6 +16,9 @@
   printers, with live status, progress, time left and layers, and their print thumbnail as the plate preview.
 - A job is also recognised when it is named after the plate or the one part on it, as Orca-style slicers name their
   output files (`3DTMT F SEAT BACK CENTER TOP REV A_PETG_9h44m.gcode`). Klipper printers send no plate number.
+- Built-in profile `snapmaker_u1_complete_chair` for the Snapmaker U1 "Complete Chair" project (31 plates, harness,
+  cushions, tires and the one-piece push handle in one file).
+- A profile's file can also match by file name (`filename:` pattern), for files that share a Title.
 - The `printers` option takes an optional `type` (`bambu` or `moonraker`).
 - A plate of a file the profile doesn't name counts when every part on it is a part of the build, so the same parts
   laid out for another printer (a Snapmaker U1 project, say) count without editing the profile. Turn it off with

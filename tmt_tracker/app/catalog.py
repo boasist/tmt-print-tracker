@@ -81,6 +81,9 @@ def build(profile, files_dir, thumbs_dir):
         old.unlink()
     namer = PartNamer(profile)
     wanted = {key: (f.get("title") or "").strip().lower() for key, f in profile["files"].items()}
+    # Optional file name pattern, for files that share a Title (MakeGood's and the Snapmaker U1 project both use
+    # "3D Toddler Mobility Trainer").
+    named = {key: re.compile(f["filename"], re.I) for key, f in profile["files"].items() if f.get("filename")}
     counting = {}   # (file key, plate) -> plate rule
     for rule in profile["plates"]:
         for idx in rule["plates"]:
@@ -94,7 +97,8 @@ def build(profile, files_dir, thumbs_dir):
             log.warning("can't read %s: %s", path.name, e)
             files.append({"file": path.name, "error": str(e)})
             continue
-        key = next((k for k, t in wanted.items() if t and t == f["title"].lower()), None)
+        key = next((k for k, t in wanted.items() if t and t == f["title"].lower()
+                    and (k not in named or named[k].search(path.name))), None)
         if key and key in found:
             log.warning("%s and %s both have the title %r; using the first", found[key], path.name, f["title"])
             key = None

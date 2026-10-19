@@ -55,7 +55,7 @@ counted and remembered.
 
 | Option | |
 |---|---|
-| `profile` | `makegood_tmt_rev_c` (built in), or your own profile file in this app's folder, e.g. `profiles/my_build.yaml`. |
+| `profile` | `makegood_tmt_rev_c` or `snapmaker_u1_complete_chair` (built in), or your own profile file in this app's folder, e.g. `profiles/my_build.yaml`. |
 | `printers` | Leave empty to use every Bambu Lab and Moonraker printer. Or list `name` + `entity_prefix` (for `sensor.my_x1c_print_status` the prefix is `my_x1c`) and, for a Moonraker printer, `type: moonraker` (for `sensor.my_u1_current_print_state` the prefix is `my_u1`). |
 | `log_level` | `debug`, `info`, `warning` or `error`. |
 
@@ -64,7 +64,8 @@ counted and remembered.
 On first start the built-in profiles are copied to `profiles/example_*.yaml` in this app's folder. Copy one to
 `profiles/my_build.yaml`, edit it, set the `profile` option to `profiles/my_build.yaml` and restart the app.
 
-- `files`: the design files, by the Title inside each 3MF.
+- `files`: the design files, by the Title inside each 3MF, and optionally a `filename` pattern for files that share
+  a Title.
 - `count_other_files` (default `true`): a plate of any other 3MF counts when every part on it is a part of the build,
   for example the same parts laid out for a Snapmaker U1.
 - `plates`: which plates count toward a TMT, each with a `group`, and optionally `material` and `optional: true`.
