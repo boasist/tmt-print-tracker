@@ -142,6 +142,9 @@ class Tracker:
                 sid, info = prev["source"], {"by": "same as previous job"}
             if not sid and cover_at and cover_at not in ("unknown", "unavailable") and cover_at != cur.get("cover_used"):
                 sid, info = self.match(task, plate, cover)
+                if sid and sid == prev.get("source") and plate != prev.get("plate"):
+                    # The printer updates the preview's timestamp before the new picture arrives: still the old plate.
+                    sid, info = None, {"by": "none", "reason": "preview still shows the previous plate"}
                 if sid:
                     cur["cover_used"] = cover_at
             elif not sid:
@@ -149,6 +152,15 @@ class Tracker:
             cur["source"], cur["match"] = sid, info
             if sid:
                 log.info("%s: printing %s (%s)", printer, sid, info)
+        elif cur.get("job") and status in ACTIVE and (cur.get("match") or {}).get("by") == "image":
+            # A newer preview during an image-matched job: if it clearly shows a different plate, follow it.
+            if cover_at and cover_at not in ("unknown", "unavailable") and cover_at != cur.get("cover_used"):
+                sid, info = self.match(task, plate, cover)
+                cur["cover_used"] = cover_at
+                if sid and sid != cur["source"]:
+                    log.info("%s: newer preview shows %s, not %s", printer, sid, cur["source"])
+                    info["rematched_from"] = cur["source"]
+                    cur["source"], cur["match"] = sid, info
         if cur.get("job") and status in ("finish", "failed") and not cur.get("done"):
             cur["done"] = True
             src = self.sources.get(cur.get("source"))
