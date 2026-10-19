@@ -16,6 +16,14 @@ IMAGE_MIN = 0.80      # outline overlap needed to accept an image match
 IMAGE_MARGIN = 0.03   # and how far it must beat the runner-up
 
 
+def job_name(task):
+    """A job name without the slicer's '_<filament>_<print time>' ending, as in Orca-style output file names:
+    '3DTMT F SEAT BACK CENTER TOP REV A_PETG_9h44m' -> '3dtmt f seat back center top rev a'."""
+    n = re.sub(r"(_[^_]*)?_(\d+d)?(\d+h)?(\d+m)?(\d+s)?$", lambda m: "" if any(m.groups()[1:]) else m.group(0),
+               (task or "").strip())
+    return n.strip().lower()
+
+
 def now():
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
@@ -100,6 +108,12 @@ class Tracker:
         hit = [s for s in titled if s["plate"] == plate]
         if len(hit) == 1:
             return hit[0]["id"], {"by": "title"}
+        # The job named after the plate or the one part on it (Klipper/Moonraker printers send no plate number).
+        name = job_name(task)
+        named = [s for s in srcs if name and not titled and
+                 (s.get("plate_name", "").strip().lower() == name or name in (n.lower() for n in s.get("names", [])))]
+        if len(named) == 1:
+            return named[0]["id"], {"by": "name"}
         if not cover or not Path(cover).exists():
             return None, {"by": "none"}
         try:
@@ -108,7 +122,7 @@ class Tracker:
             return None, {"by": "none", "error": f"cover image: {e}"}
         if len(mask) < 8:
             return None, {"by": "none", "error": "cover image is empty"}
-        scored = sorted(((iou(mask, self._mask(s["thumb"])), s["id"]) for s in (titled or srcs)
+        scored = sorted(((iou(mask, self._mask(s["thumb"])), s["id"]) for s in (titled or named or srcs)
                          if s.get("thumb") and (self.thumbs / s["thumb"]).exists()), reverse=True)
         if not scored:
             return None, {"by": "none"}

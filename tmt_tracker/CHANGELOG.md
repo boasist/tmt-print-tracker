@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+- Moonraker printers (Snapmaker U1 and other Klipper printers) through the
+  [Moonraker integration](https://github.com/marcolivierarsenault/moonraker): found automatically next to Bambu Lab
+  printers, with live status, progress, time left and layers, and their print thumbnail as the plate preview.
+- A job is also recognised when it is named after the plate or the one part on it, as Orca-style slicers name their
+  output files (`3DTMT F SEAT BACK CENTER TOP REV A_PETG_9h44m.gcode`). Klipper printers send no plate number.
+- The `printers` option takes an optional `type` (`bambu` or `moonraker`).
+
 ## 0.1.2
 
 - Printer cards show when the print will be done ("Done at 4:49 PM", with the weekday if it isn't today) instead of

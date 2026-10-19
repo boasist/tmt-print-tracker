@@ -1,4 +1,4 @@
-"""TMT Print Tracker add-on: watches Bambu Lab printers in Home Assistant, works out which plate of which 3MF each one
+"""TMT Print Tracker add-on: watches Bambu Lab and Moonraker (e.g. Snapmaker U1) printers in Home Assistant, works out which plate of which 3MF each one
 is printing, counts the parts of finished plates toward builds, and serves the dashboard over ingress."""
 import asyncio
 import json
@@ -12,17 +12,15 @@ from aiohttp import ClientSession, web
 
 import catalog as catalog_mod
 from ha import HomeAssistant
+from printers import Printer
 from tracker import Tracker
 
-VERSION = "0.1.2"
+VERSION = "0.2.0"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
 FILES = CONFIG / "files"
 OPTIONS = DATA / "options.json"
-LIVE_SENSORS = ("print_status", "task_name", "gcode_filename", "print_progress", "remaining_time", "current_layer",
-                "total_layer_count", "end_time", "current_stage")
-JOB_SENSORS = ("print_status", "task_name", "gcode_filename")
 
 log = logging.getLogger("tmt")
 
@@ -32,7 +30,7 @@ class App:
         self.options = options
         self.tracker = Tracker(DATA)
         self.lock = asyncio.Lock()
-        self.printers = []            # [{name, prefix}]
+        self.printers = []            # [Printer]
         self.catalog = {}
         self.profile_path = None
         self.profile_error = None
@@ -66,56 +64,53 @@ class App:
         self.tracker.set_catalog(self.catalog)
 
     async def entity_ids(self):
-        configured = [{"name": p["name"], "prefix": p["entity_prefix"]} for p in self.options.get("printers") or []]
-        self.printers = configured or await self.ha.bambu_printers()
-        log.info("printers: %s", ", ".join(f"{p['name']} ({p['prefix']})" for p in self.printers) or "none found")
-        ids = []
-        for p in self.printers:
-            ids += [f"sensor.{p['prefix']}_{s}" for s in LIVE_SENSORS] + [f"image.{p['prefix']}_cover_image"]
-        return ids
+        configured = [{"name": p["name"], "prefix": p["entity_prefix"], "type": p.get("type") or "bambu"}
+                      for p in self.options.get("printers") or []]
+        self.printers = [Printer(**p) for p in configured or await self.ha.printers()]
+        log.info("printers: %s", ", ".join(f"{p.name} ({p.type} {p.prefix})" for p in self.printers) or "none found")
+        return [e for p in self.printers for e in p.entity_ids()]
 
     # ------------------------------------------------------------ printer events
     async def on_connect(self):
         for p in self.printers:
-            await self.process(p["prefix"], cover_changed=True)
+            await self.process(p, cover_changed=True)
 
     async def on_change(self, entity_ids):
+        changed = set(entity_ids)
         for p in self.printers:
-            pre = p["prefix"]
-            job = any(e in entity_ids for e in [f"sensor.{pre}_{s}" for s in JOB_SENSORS])
-            cover = f"image.{pre}_cover_image" in entity_ids
+            job = bool(p.job_entities() & changed)
+            cover = p.cover_entity in changed or (p.type != "bambu" and p.entity("gcode_filename") in changed)
             if job or cover:
                 # A finish usually changes several entities at once; handle them together.
-                prev = self._pending.get(pre)
+                prev = self._pending.get(p.prefix)
                 if prev and not prev.done():
                     prev.cancel()
-                self._pending[pre] = asyncio.create_task(self._debounced(pre, cover))
+                self._pending[p.prefix] = asyncio.create_task(self._debounced(p, cover))
 
-    async def _debounced(self, prefix, cover):
+    async def _debounced(self, printer, cover):
         await asyncio.sleep(1.5)
-        await self.process(prefix, cover)
+        await self.process(printer, cover)
 
-    async def process(self, prefix, cover_changed=False):
-        s = self.ha.states
-        cover_entity = f"image.{prefix}_cover_image"
-        cover_at = s.get(cover_entity)
+    async def process(self, printer, cover_changed=False):
+        prefix = printer.prefix
+        live = printer.live(self.ha.states)
+        cover_at = printer.cover_at(self.ha.states)
         cover_path = DATA / "covers" / f"{prefix}.png"
         if cover_changed and cover_at not in (None, "unknown", "unavailable"):
             try:
                 cover_path.parent.mkdir(parents=True, exist_ok=True)
-                cover_path.write_bytes(await self.ha.fetch(f"/api/image_proxy/{cover_entity}"))
+                cover_path.write_bytes(await self.ha.fetch(printer.cover_url))
             except Exception as e:
                 log.warning("%s: couldn't fetch the plate preview: %s", prefix, e)
         async with self.lock:
-            res = self.tracker.update(prefix, s.get(f"sensor.{prefix}_print_status"), s.get(f"sensor.{prefix}_task_name"),
-                                      s.get(f"sensor.{prefix}_gcode_filename"), str(cover_path), cover_at)
+            res = self.tracker.update(prefix, live["print_status"], live["task_name"], live["gcode_filename"],
+                                      str(cover_path), cover_at)
         log.debug("%s: %s", prefix, res)
 
     # ------------------------------------------------------------ web
     def live(self):
         s = self.ha.states if self.ha else {}
-        return [{"key": p["prefix"], "name": p["name"],
-                 "live": {k: s.get(f"sensor.{p['prefix']}_{k}") for k in LIVE_SENSORS}} for p in self.printers]
+        return [{"key": p.prefix, "name": p.name, "type": p.type, "live": p.live(s)} for p in self.printers]
 
     async def h_data(self, request):
         st = self.tracker.st

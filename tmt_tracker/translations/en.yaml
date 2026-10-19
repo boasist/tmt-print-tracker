@@ -7,7 +7,8 @@ configuration:
   printers:
     name: Printers
     description: >-
-      Leave empty to use every Bambu Lab printer in Home Assistant. Or list them: a display name and the entity prefix
-      (for sensor.my_printer_print_status the prefix is my_printer).
+      Leave empty to use every Bambu Lab and Moonraker printer in Home Assistant. Or list them: a display name, the
+      entity prefix (for sensor.my_printer_print_status the prefix is my_printer) and the type (bambu, the default, or
+      moonraker, where sensor.my_u1_current_print_state has the prefix my_u1).
   log_level:
     name: Log level

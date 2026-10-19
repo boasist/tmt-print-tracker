@@ -119,7 +119,9 @@ def build(profile, files_dir, thumbs_dir):
                 (thumbs_dir / thumb).write_bytes(f["thumbs"][idx])
             sources.append({"id": f"{digest}#{idx}", "file": path.name, "title": f["title"], "plate": idx,
                             "plate_name": pl["name"], "counts": rule is not None, "group": rule["group"] if rule else None,
-                            "yields": dict(yields), "thumb": thumb})
+                            "yields": dict(yields), "thumb": thumb,
+                            "names": sorted({re.sub(r"\.(step|stl|3mf|obj)(_\d+)?$", "", raw.strip(), flags=re.I)
+                                             for raw in pl["objects"]})})
     for pid, q in (profile.get("quantities") or {}).items():
         if pid in parts:
             parts[pid]["qty"] = int(q)

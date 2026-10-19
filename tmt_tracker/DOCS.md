@@ -1,10 +1,13 @@
 # TMT Print Tracker
 
-Tracks the 3D-printed parts of Toddler Mobility Trainer (TMT) builds from your Bambu Lab printers.
+Tracks the 3D-printed parts of Toddler Mobility Trainer (TMT) builds from your Bambu Lab and Moonraker printers
+(Snapmaker U1 and other Klipper printers).
 
 ## Getting started
 
-1. Add your printers to Home Assistant with the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab).
+1. Add your printers to Home Assistant with the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab) or,
+   for a Snapmaker U1 or other Klipper printer, the [Moonraker integration](https://github.com/marcolivierarsenault/moonraker)
+   (both from HACS). Give each Moonraker printer its own name when you add it.
 2. Start this app and open **TMT** in the sidebar (turn on **Show in sidebar** on the app's page).
 3. Under **Files**, upload the TMT design files (`.3mf`). A notice at the top lists any file the build profile still
    needs. Files are matched by the **Title inside the 3MF**, so their file names don't matter.
@@ -20,8 +23,11 @@ In this order:
 1. A plate you assigned by hand before (remembered by job name + plate number).
 2. The job name equals a file's Title and the plate number exists in that file. This is the case for prints sent
    from Bambu Studio.
-3. The same plate as the printer's previous job (reprints).
-4. The printer's plate preview image compared with every plate preview in your files: the outlines must overlap by
+3. The job is named after the plate, or the one part on it. Orca-style slicers (Snapmaker Orca for the U1) name the
+   file after it, e.g. `3DTMT F SEAT BACK CENTER TOP REV A_PETG_9h44m.gcode`; the filament and time at the end are
+   ignored. If several plates fit, the plate preview decides between them.
+4. The same plate as the printer's previous job (reprints).
+5. The printer's plate preview image (a Moonraker printer's print thumbnail) compared with every plate preview in your files: the outlines must overlap by
    at least 80% and clearly beat the runner-up. Colour is ignored. This catches prints sent from MakerWorld or Bambu
    Handy, whose job name is the print profile's name.
 
@@ -43,7 +49,7 @@ counted and remembered.
 | Option | |
 |---|---|
 | `profile` | `makegood_tmt_rev_c` (built in), or your own profile file in this app's folder, e.g. `profiles/my_build.yaml`. |
-| `printers` | Leave empty to use every Bambu Lab printer. Or list `name` + `entity_prefix` (for `sensor.my_x1c_print_status` the prefix is `my_x1c`). |
+| `printers` | Leave empty to use every Bambu Lab and Moonraker printer. Or list `name` + `entity_prefix` (for `sensor.my_x1c_print_status` the prefix is `my_x1c`) and, for a Moonraker printer, `type: moonraker` (for `sensor.my_u1_current_print_state` the prefix is `my_u1`). |
 | `log_level` | `debug`, `info`, `warning` or `error`. |
 
 ## Changing the build: profiles

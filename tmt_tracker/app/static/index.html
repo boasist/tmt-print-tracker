@@ -139,7 +139,7 @@ function renderNotices(){
   if(D.profile_error) n.push(`<div class="card notice"><b>Profile problem:</b> ${esc(D.profile_error)}</div>`);
   if(D.catalog.missing&&D.catalog.missing.length) n.push(`<div class="card notice"><b>${D.catalog.missing.length} design file(s) still needed</b> — upload them under Files below:
     <ul>${D.catalog.missing.map(m=>`<li>${esc(m.title)}</li>`).join('')}</ul><span class="muted">Files are matched by the Title inside the 3MF, so the file name doesn't matter.</span></div>`);
-  if(!D.printers.length) n.push('<div class="card notice"><b>No printers.</b> Add your Bambu Lab printers to Home Assistant with the Bambu Lab integration, or list them in the add-on options.</div>');
+  if(!D.printers.length) n.push('<div class="card notice"><b>No printers.</b> Add your printers to Home Assistant with the Bambu Lab or Moonraker integration, or list them in the add-on options.</div>');
   setHTML('notices',n.join(''));
 }
 
