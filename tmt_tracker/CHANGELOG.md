@@ -8,6 +8,9 @@
 - A job is also recognised when it is named after the plate or the one part on it, as Orca-style slicers name their
   output files (`3DTMT F SEAT BACK CENTER TOP REV A_PETG_9h44m.gcode`). Klipper printers send no plate number.
 - The `printers` option takes an optional `type` (`bambu` or `moonraker`).
+- A plate of a file the profile doesn't name counts when every part on it is a part of the build, so the same parts
+  laid out for another printer (a Snapmaker U1 project, say) count without editing the profile. Turn it off with
+  `count_other_files: false` in the profile.
 
 ## 0.1.2
 

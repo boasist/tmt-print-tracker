@@ -117,11 +117,17 @@ def build(profile, files_dir, thumbs_dir):
             if idx in f["thumbs"]:
                 thumb = f"{digest}_plate_{idx}.png"
                 (thumbs_dir / thumb).write_bytes(f["thumbs"][idx])
-            sources.append({"id": f"{digest}#{idx}", "file": path.name, "title": f["title"], "plate": idx,
+            sources.append({"id": f"{digest}#{idx}", "file": path.name, "profile_file": key, "title": f["title"], "plate": idx,
                             "plate_name": pl["name"], "counts": rule is not None, "group": rule["group"] if rule else None,
                             "yields": dict(yields), "thumb": thumb,
                             "names": sorted({re.sub(r"\.(step|stl|3mf|obj)(_\d+)?$", "", raw.strip(), flags=re.I)
                                              for raw in pl["objects"]})})
+    # A plate of a file the profile doesn't name (e.g. the same parts laid out for another printer, like a Snapmaker U1
+    # project) counts when every part on it is a part of the build.
+    if profile.get("count_other_files", True):
+        for src in sources:
+            if not src["counts"] and src["yields"] and not src["profile_file"] and all(pid in parts for pid in src["yields"]):
+                src["counts"], src["group"] = True, parts[next(iter(src["yields"]))]["group"]
     for pid, q in (profile.get("quantities") or {}).items():
         if pid in parts:
             parts[pid]["qty"] = int(q)

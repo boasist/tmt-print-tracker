@@ -112,8 +112,9 @@ class Tracker:
         name = job_name(task)
         named = [s for s in srcs if name and not titled and
                  (s.get("plate_name", "").strip().lower() == name or name in (n.lower() for n in s.get("names", [])))]
-        if len(named) == 1:
-            return named[0]["id"], {"by": "name"}
+        if named and len({json.dumps(s["yields"], sort_keys=True) for s in named}) == 1:
+            # One plate, or the same parts on several (e.g. a Bambu Studio file and its U1 copy): any one counts the same.
+            return sorted(named, key=lambda s: (not s["counts"], s["file"], s["plate"]))[0]["id"], {"by": "name"}
         if not cover or not Path(cover).exists():
             return None, {"by": "none"}
         try:

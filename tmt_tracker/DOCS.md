@@ -58,6 +58,8 @@ On first start the built-in profiles are copied to `profiles/example_*.yaml` in 
 `profiles/my_build.yaml`, edit it, set the `profile` option to `profiles/my_build.yaml` and restart the app.
 
 - `files`: the design files, by the Title inside each 3MF.
+- `count_other_files` (default `true`): a plate of any other 3MF counts when every part on it is a part of the build,
+  for example the same parts laid out for a Snapmaker U1.
 - `plates`: which plates count toward a TMT, each with a `group`, and optionally `material` and `optional: true`.
   Plates not listed are still recognised when printed, and logged as "not a TMT plate".
 - `quantities`: pieces per TMT where it isn't simply one plate's worth (for example 16 tires from an 8-tire plate).
