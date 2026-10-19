@@ -113,6 +113,19 @@ function nowPrinting(){
   return map;
 }
 
+// "Done at 4:52 PM" from the printer's end time, or now + time left; the weekday is added when it isn't today.
+function doneAt(end,rem){
+  let d=end&&!['unknown','unavailable'].includes(end)?new Date(end):null;
+  if(!d||isNaN(d)){const r=parseFloat(rem); if(isFinite(r)) d=new Date(Date.now()+r*3600e3);}
+  if(!d||isNaN(d)) return '';
+  const t=d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+  return d.toDateString()===new Date().toDateString()?t:d.toLocaleDateString([],{weekday:'short'})+' '+t;
+}
+function whenLine(status,end,rem,counts){
+  const at=doneAt(end,rem);
+  const txt=status==='finish'?(at?'Finished at '+at:'Finished'):status==='failed'?'':at?'Done at '+at:'';
+  return `<div class="muted">${esc(txt)}${counts?'':' <span class="tag">not a TMT plate</span>'}</div>`;
+}
 function render(){
   if(!D) return;
   $('target').textContent=D.state.target;
@@ -143,7 +156,7 @@ function renderPrinters(){
     const img=s&&s.thumb?'thumbs/'+s.thumb:`covers/${p.key}.png?t=${encodeURIComponent(D.state.updated||'')}`;
     let what;
     if(active||status==='finish'||status==='failed'){
-      what=s?`<div>${esc(srcLabel(s))}</div><div class="muted">${s.counts?'counts toward TMTs':'not a TMT plate'} · matched by ${esc((cur.match||{}).by||'?')}</div>`
+      what=s?`<div>${esc(srcLabel(s))}</div>${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
         :`<div>${esc(L.task_name||cur.task||'')} · plate ${esc(cur.plate??'?')}</div><div><span class="tag warn">not recognised</span> ${assignSelect(`assignPrinter('${p.key}',this.value)`)}</div>`;
     } else what='<div class="muted">idle</div>';
     const tag=status==='finish'?'ok':status==='failed'?'bad':active?'now':'';

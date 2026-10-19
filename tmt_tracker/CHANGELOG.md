@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Printer cards show when the print will be done ("Done at 4:49 PM", with the weekday if it isn't today) instead of
+  how the plate was recognised. Finished prints show "Finished at …"; plates outside the build keep a "not a TMT plate" tag.
+
 ## 0.1.1
 
 - Fix: a new print could be recognised as the previous plate. When a job starts, the printer updates its preview
