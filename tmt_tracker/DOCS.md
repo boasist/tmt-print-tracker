@@ -41,6 +41,12 @@ counted and remembered.
   printed beyond what TMT #1 needs. **Mark assembled** takes one TMT's parts out of the count.
 - **Parts**: every part by group, with ✓ / partial per TMT, what's printing now, and − / + to correct counts (for
   example parts printed before you started using this app, or a part that failed on a plate).
+- **Projects**: a request, a chair not yet for a child, or a parts order (wheels for another maker, say), each counted
+  separately. Create one under **New project**: a whole TMT, or a parts order where you set how many of each part (or
+  fill in one TMT's worth of a group, like Wheels). Then pick it under **Printing for** on a printer card; that printer's
+  finished plates count toward it until you change it. **use spare parts** moves parts the project still needs out of
+  the spares, **mark done** closes it. Prints for no project go into the spare parts, shown as the planned TMTs below.
+- **Not for a TMT**: under Printing for, for prints that aren't TMT parts. They're logged, never counted.
 - **Recent prints**: counted, failed, not recognised (assign) or not a TMT plate; **undo** takes a print back out.
 - **Files**: the uploaded 3MF files, what each is used as, and the build profile in use.
 

@@ -46,6 +46,12 @@ td.slot{text-align:center;min-width:54px}
 .toast{position:fixed;right:16px;bottom:16px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;opacity:0;transition:opacity .3s;max-width:420px}
 .toast.show{opacity:.95}
 .small-text td{font-size:13px}
+input[type=text],input[type=number]{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:4px 8px}
+input[type=number]{width:64px}
+.missing{font-size:13px;margin-top:6px}
+.for{margin-top:6px;font-size:13px}
+.order-parts{display:grid;gap:4px 14px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));margin-top:8px}
+.order-parts label{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:13px}
 @media (max-width:600px){header,main{padding-left:16px;padding-right:16px}.hide-sm{display:none}}
 </style>
 </head>
@@ -59,7 +65,23 @@ td.slot{text-align:center;min-width:54px}
   <section id="notices"></section>
   <section><h2>Printers</h2><div class="row" id="printers"></div></section>
   <section>
-    <h2>TMTs <span style="text-transform:none;letter-spacing:0">· planned <button class="small" onclick="setTarget(-1)">−</button> <b id="target">1</b> <button class="small" onclick="setTarget(1)">+</button></span></h2>
+    <h2>Projects</h2>
+    <div class="row" id="projects"></div>
+    <details class="card" id="newproj" style="margin-top:14px">
+      <summary><b>New project</b> <span class="muted">a request, a chair not yet for a child, or a parts order</span></summary>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="text" id="np-name" placeholder="Request #1234, Snapmaker Purple Chair, Wheels order #5678" style="flex:1;min-width:240px">
+        <select id="np-kind" onchange="renderOrderParts()"><option value="build">Whole TMT</option><option value="order">Parts order</option></select>
+        <button class="primary" onclick="newProject()">Create</button>
+      </div>
+      <div id="np-order" style="display:none;margin-top:10px">
+        <div class="muted">How many of each part this order needs. Fill in one TMT's worth of a group: <select id="np-group"></select> <button class="small" onclick="fillGroup()">fill</button> <button class="small" onclick="clearOrder()">clear</button></div>
+        <div class="order-parts" id="np-parts"></div>
+      </div>
+    </details>
+  </section>
+  <section>
+    <h2>Spare parts · TMTs not in a project <span style="text-transform:none;letter-spacing:0">· planned <button class="small" onclick="setTarget(-1)">−</button> <b id="target">1</b> <button class="small" onclick="setTarget(1)">+</button></span></h2>
     <div class="row" id="builds"></div>
   </section>
   <section><h2>Parts</h2><table id="parts"></table></section>
@@ -131,7 +153,7 @@ function render(){
   $('target').textContent=D.state.target;
   const sm=D.summary;
   $('sub').textContent=`${D.profile||'no profile'} · ${sm.assembled||0} assembled · ${sm.complete_in_pool||0} ready in printed parts`;
-  renderNotices(); renderPrinters(); renderBuilds(); renderParts(); renderHist(); renderFiles();
+  renderNotices(); renderPrinters(); renderProjects(); renderBuilds(); renderParts(); renderHist(); renderFiles();
 }
 
 function renderNotices(){
@@ -155,7 +177,9 @@ function renderPrinters(){
     const s=srcById(cur.source); const active=ACTIVE.includes(status);
     const img=s&&s.thumb?'thumbs/'+s.thumb:`covers/${p.key}.png?t=${encodeURIComponent(D.state.updated||'')}`;
     let what;
-    if(active||status==='finish'||status==='failed'){
+    const notTmt=(D.state.printer_project||{})[p.key]==='-';
+    if(notTmt&&(active||status==='finish'||status==='failed')) what=`<div>${esc(L.task_name||cur.task||'')}</div><div class="muted">not for a TMT, not counted</div>`;
+    else if(active||status==='finish'||status==='failed'){
       what=s?`<div>${esc(srcLabel(s))}</div>${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
         :`<div>${esc(L.task_name||cur.task||'')} · plate ${esc(cur.plate??'?')}</div><div><span class="tag warn">not recognised</span> ${assignSelect(`assignPrinter('${p.key}',this.value)`)}</div>`;
     } else what='<div class="muted">idle</div>';
@@ -163,6 +187,7 @@ function renderPrinters(){
     return `<div class="card printer"><img src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
       <div><div class="name">${esc(p.name)} <span class="tag ${tag}">${esc(status)}</span></div>${what}
       ${active?`<div class="bar"><i style="width:${prog}%"></i></div><div class="muted">${prog}%${isFinite(rem)?' · '+(rem>=1?rem.toFixed(1)+' h':Math.round(rem*60)+' min')+' left':''} · layer ${esc(L.current_layer||'?')}/${esc(L.total_layer_count||'?')}</div>`:''}
+      <div class="for muted">Printing for ${projSelect((D.state.printer_project||{})[p.key],`setPrinterProject('${p.key}',this.value)`)}</div>
       </div></div>`;
   }).join(''));
 }
@@ -209,14 +234,15 @@ function renderHist(){
   if(!rows.length){setHTML('hist','<tr><td class="muted">No finished prints yet.</td></tr>');return;}
   const t=s=>new Date(s).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
   const res=r=>({counted:'<span class="tag ok">counted</span>',failed:'<span class="tag bad">failed</span>',unmatched:'<span class="tag warn">not recognised</span>',
-    other:'<span class="tag">not a TMT plate</span>',imported:'<span class="tag">imported</span>',undone:'<span class="tag">undone</span>',adjusted:'<span class="tag">adjusted</span>',assembled:'<span class="tag ok">assembled</span>'}[r]||esc(r));
+    other:'<span class="tag">not a TMT plate</span>','not tmt':'<span class="tag">not for a TMT</span>','moved from spares':'<span class="tag">moved from spares</span>','project done':'<span class="tag ok">project done</span>','project reopened':'<span class="tag">project reopened</span>',imported:'<span class="tag">imported</span>',undone:'<span class="tag">undone</span>',adjusted:'<span class="tag">adjusted</span>',assembled:'<span class="tag ok">assembled</span>'}[r]||esc(r));
   const pname=id=>(cat().parts.find(p=>p.id===id)||{}).name||id;
-  setHTML('hist','<tr><th>When</th><th>Printer</th><th>What</th><th>Result</th><th></th></tr>'+rows.map(e=>{
+  setHTML('hist','<tr><th>When</th><th>Printer</th><th>What</th><th>Result</th><th>For</th><th></th></tr>'+rows.map(e=>{
     const s=srcById(e.source);
-    const what=e.result==='imported'?`${e.pieces} pieces of ${e.parts} parts`:e.result==='adjusted'?`${esc(pname(e.part))} ${e.delta>0?'+':''}${e.delta}`:e.result==='assembled'?`TMT #${e.build}`:s?esc(srcLabel(s)):`${esc(e.task||'')} · plate ${esc(e.plate??'?')}`;
-    const a=e.result==='unmatched'?assignSelect(`assignLog(${e.id},this.value)`):e.result==='counted'?`<button class="small" onclick="undo(${e.id})">undo</button>`:'';
+    const what=e.result==='moved from spares'?`${e.pieces} pieces → ${esc(projName(e.project))}`:e.result.startsWith('project')?esc(projName(e.project)):e.result==='imported'?`${e.pieces} pieces of ${e.parts} parts`:e.result==='adjusted'?`${esc(pname(e.part))} ${e.delta>0?'+':''}${e.delta}`:e.result==='assembled'?`TMT #${e.build}`:s?esc(srcLabel(s)):`${esc(e.task||'')} · plate ${esc(e.plate??'?')}`;
+    const a=e.result==='unmatched'?assignSelect(`assignLog(${e.id},this.value)`)+` <button class="small" onclick="movePrint(${e.id},'-')">not for a TMT</button>`:e.result==='counted'?`<button class="small" onclick="undo(${e.id})">undo</button>`:'';
     const pr=(D.printers.find(p=>p.key===e.printer)||{}).name||e.printer||'';
-    return `<tr><td>${t(e.time)}</td><td>${esc(pr)}</td><td>${what}</td><td>${res(e.result)}</td><td>${a}</td></tr>`;
+    const fo=e.result==='counted'?projSelect(e.project,`movePrint(${e.id},this.value)`):e.project?esc(projName(e.project)):'';
+    return `<tr><td>${t(e.time)}</td><td>${esc(pr)}</td><td>${what}</td><td>${res(e.result)}</td><td>${fo}</td><td>${a}</td></tr>`;
   }).join(''));
 }
 
@@ -227,6 +253,57 @@ function renderFiles(){
     <td>${x.plates??''}</td><td>${x.profile_file?`<span class="tag ok">${esc(x.profile_file)}</span>`:'<span class="tag">other (recognised, not counted)</span>'}</td>
     <td><button class="small" onclick="delFile('${esc(x.file).replace(/'/g,"\\'")}')">remove</button></td></tr>`).join(''):'<tr><td class="muted">No 3MF files yet.</td></tr>');
 }
+
+const projName=id=>((D.state.projects||[]).find(p=>p.id===id)||{}).name||'(removed project)';
+function projSelect(value,onchange){
+  const ps=(D.state.projects||[]).filter(p=>!p.done||p.id===value);
+  return `<select onchange="${onchange}"><option value="">spare parts (no project)</option><option value="-"${value==='-'?' selected':''}>not for a TMT</option>${ps.map(p=>`<option value="${esc(p.id)}"${p.id===value?' selected':''}>${esc(p.name)}</option>`).join('')}</select>`;
+}
+function renderProjects(){
+  const ps=D.state.projects||[], sums=Object.fromEntries((D.projects||[]).map(x=>[x.id,x]));
+  const pname=id=>(cat().parts.find(p=>p.id===id)||{}).name||id;
+  const pool=D.state.counts||{};
+  const printing=id=>D.printers.filter(p=>(D.state.printer_project||{})[p.key]===id).map(p=>`<span class="tag now">${esc(p.name)}</span>`).join('');
+  const card=p=>{
+    const x=sums[p.id]||{pieces:0,of:0,missing:{}}; const pct=x.of?Math.round(100*x.pieces/x.of):0;
+    const miss=Object.entries(x.missing); const spare=miss.some(([pid])=>(pool[pid]||0)>0);
+    const st=p.done?'<span class="tag ok">done</span>':x.complete?'<span class="tag ok">all parts printed</span>':pct>0?'<span class="tag now">in progress</span>':'<span class="tag">not started</span>';
+    return `<div class="card"><div class="muted">${p.kind==='order'?'Parts order':'TMT'}</div><div class="name" style="font-weight:600;font-size:16px">${esc(p.name)}</div>
+      <div class="big">${pct}%</div><div class="bar ${x.complete?'ok':''}"><i style="width:${pct}%"></i></div>
+      <div>${st} <span class="muted">${x.pieces} of ${x.of} pieces</span> ${printing(p.id)}</div>
+      ${!p.done&&miss.length?`<div class="missing muted">Still needed: ${miss.slice(0,10).map(([pid,n])=>`${esc(pname(pid))} ×${n}`).join(', ')}${miss.length>10?`, and ${miss.length-10} more`:''}</div>`:''}
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        ${!p.done&&spare?`<button class="small" onclick="fillFromPool('${p.id}')">use spare parts</button>`:''}
+        ${p.done?`<button class="small" onclick="projectDone('${p.id}',false)">reopen</button>`:`<button class="small${x.complete?' primary':''}" onclick="projectDone('${p.id}',true)">mark done</button>`}
+        <button class="small" onclick="renameProject('${p.id}')">rename</button>
+        <button class="small" onclick="deleteProject('${p.id}')">remove</button></div></div>`;
+  };
+  const open=ps.filter(p=>!p.done), done=ps.filter(p=>p.done).slice(-6).reverse();
+  setHTML('projects',(open.length?open.map(card).join(''):'<div class="muted">No projects. Prints count toward the spare parts below. Create a project to keep a request, a chair or a parts order separate.</div>')
+    +(done.length?`<details class="card"><summary class="muted">Done (${ps.filter(p=>p.done).length})</summary><div class="row" style="margin-top:10px">${done.map(card).join('')}</div></details>`:''));
+}
+function renderOrderParts(){
+  const order=$('np-kind').value==='order'; $('np-order').style.display=order?'':'none';
+  if(!order||$('np-parts').dataset.n==String(cat().parts.length)) return;
+  $('np-parts').dataset.n=cat().parts.length;
+  $('np-parts').innerHTML=cat().parts.map(p=>`<label><span><span class="code">${esc(p.code)}</span>${esc(p.name)}</span><input type="number" min="0" value="0" data-part="${esc(p.id)}"></label>`).join('');
+  $('np-group').innerHTML=[...new Set(cat().parts.map(p=>p.group))].map(g=>`<option>${esc(g)}</option>`).join('');
+}
+function fillGroup(){const g=$('np-group').value; for(const p of cat().parts.filter(p=>p.group===g)){const i=document.querySelector(`#np-parts input[data-part="${p.id}"]`); if(i) i.value=(+i.value||0)+p.qty;}}
+function clearOrder(){document.querySelectorAll('#np-parts input').forEach(i=>i.value=0);}
+async function newProject(){
+  const kind=$('np-kind').value, needs={};
+  if(kind==='order') document.querySelectorAll('#np-parts input').forEach(i=>{if(+i.value>0) needs[i.dataset.part]=+i.value;});
+  if(kind==='order'&&!Object.keys(needs).length){toast('Set how many of each part the order needs');return;}
+  const r=await act('project_add',{name:$('np-name').value,kind,needs});
+  if(r.ok){$('np-name').value='';clearOrder();$('newproj').open=false;toast('Project created. Pick it under "Printing for" on a printer.');}
+}
+async function setPrinterProject(printer,project){await act('printer_project',{printer,project:project||null});}
+async function movePrint(id,project){await act('move_print',{log_id:id,project:project||null});}
+async function fillFromPool(id){const r=await act('fill_from_pool',{project:id}); if(r.ok) toast(`Moved ${r.moved} spare pieces into ${projName(id)}`);}
+async function projectDone(id,done){if(!done||confirm(`Mark ${projName(id)} as done?`)) await act('project_update',{project:id,done});}
+async function renameProject(id){const n=prompt('Project name',projName(id)); if(n) await act('project_update',{project:id,name:n});}
+async function deleteProject(id){if(confirm(`Remove ${projName(id)}? Its printed parts go back into the spare parts.`)) await act('project_delete',{project:id});}
 
 async function adjust(part,delta){const r=await act('adjust',{part,delta}); if(r.ok) toast(`${(cat().parts.find(p=>p.id===part)||{}).name}: ${r.count}`);}
 async function setTarget(d){await act('target',{count:Math.max(1,(D.state.target||1)+d)});}

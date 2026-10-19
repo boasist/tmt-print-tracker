@@ -2,6 +2,13 @@
 
 ## 0.2.0
 
+- Projects: keep a request, a chair not yet for a child, or a parts order (e.g. wheels for another maker) separate.
+  Each printer card has **Printing for**: finished plates count toward that project instead of the spare parts. A
+  project is a whole TMT or a parts order with your own quantities; its card shows progress and what's still needed,
+  can take parts from the spares, and is marked done when assembled or shipped. Move a print to another project in
+  Recent prints. Without projects everything works as before.
+- **Not for a TMT**: choose it under Printing for (or on an unrecognised print) for prints that aren't TMT parts; they
+  are logged but never counted or asked about.
 - Moonraker printers (Snapmaker U1 and other Klipper printers) through the
   [Moonraker integration](https://github.com/marcolivierarsenault/moonraker): found automatically next to Bambu Lab
   printers, with live status, progress, time left and layers, and their print thumbnail as the plate preview.

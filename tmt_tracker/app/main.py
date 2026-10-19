@@ -118,15 +118,19 @@ class App:
             "version": VERSION, "connected": bool(self.ha and self.ha.connected),
             "profile": self.catalog.get("profile"), "profile_path": str(self.profile_path), "profile_error": self.profile_error,
             "catalog": {k: self.catalog.get(k) for k in ("parts", "alternatives", "sources", "files", "missing")},
-            "state": {k: st.get(k) for k in ("target", "assembled", "counts", "printers", "log", "updated")},
-            "summary": self.tracker.summary(), "printers": self.live()})
+            "state": {k: st.get(k) for k in ("target", "assembled", "counts", "printers", "log", "updated", "projects",
+                                             "printer_project")},
+            "summary": self.tracker.summary(), "projects": self.tracker.project_summaries(), "printers": self.live()})
 
     async def h_action(self, request):
         a = await request.json()
         cmd = a.pop("cmd", "")
         fn = {"assign": self.tracker.assign, "adjust": self.tracker.adjust, "undo": self.tracker.undo,
               "target": self.tracker.target, "assembled": self.tracker.assembled,
-              "import_counts": self.tracker.import_counts}.get(cmd)
+              "import_counts": self.tracker.import_counts, "project_add": self.tracker.project_add,
+              "project_update": self.tracker.project_update, "project_delete": self.tracker.project_delete,
+              "printer_project": self.tracker.printer_project, "move_print": self.tracker.move_print,
+              "fill_from_pool": self.tracker.fill_from_pool}.get(cmd)
         if not fn:
             return web.json_response({"ok": False, "error": f"unknown command {cmd!r}"}, status=400)
         try:
