@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Uploads go in 8 MB pieces, so 3MF files over 16 MB (Home Assistant's ingress limit) upload; sliced projects are
+  often 100 MB.
+
 ## 0.2.0
 
 - Projects: keep a request, a chair not yet for a child, or a parts order (e.g. wheels for another maker) separate.

@@ -15,7 +15,7 @@ from ha import HomeAssistant
 from printers import Printer
 from tracker import Tracker
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
@@ -160,6 +160,34 @@ class App:
             self.rebuild_catalog()
         return web.json_response({"ok": True, "saved": saved, "missing": self.catalog.get("missing")})
 
+    async def h_upload_chunk(self, request):
+        """One piece of a large upload (Home Assistant's ingress refuses bodies over 16 MB): ?name=&offset=&total=.
+        Pieces arrive in order; the file is checked and the catalog rebuilt after the last one."""
+        q = request.query
+        name = re.sub(r"[^A-Za-z0-9 ._()+&-]", "_", Path(q.get("name", "")).name)
+        if not name.lower().endswith(".3mf"):
+            return web.json_response({"ok": False, "error": f"{name}: only .3mf files"})
+        offset, total = int(q.get("offset", 0)), int(q.get("total", 0))
+        FILES.mkdir(parents=True, exist_ok=True)
+        tmp = FILES / (name + ".part")
+        if offset == 0:
+            tmp.unlink(missing_ok=True)
+        elif not tmp.exists() or tmp.stat().st_size != offset:
+            return web.json_response({"ok": False, "error": "upload out of order; start again"})
+        with open(tmp, "ab") as f:
+            async for chunk in request.content.iter_chunked(1 << 20):
+                f.write(chunk)
+        size = tmp.stat().st_size
+        if size < total:
+            return web.json_response({"ok": True, "received": size})
+        if size != total:
+            tmp.unlink()
+            return web.json_response({"ok": False, "error": f"{name}: got {size} bytes, expected {total}"})
+        os.replace(tmp, FILES / name)
+        async with self.lock:
+            self.rebuild_catalog()
+        return web.json_response({"ok": True, "saved": [name], "missing": self.catalog.get("missing")})
+
     async def h_delete_file(self, request):
         name = Path((await request.json()).get("file", "")).name
         path = FILES / name
@@ -196,7 +224,8 @@ class App:
             token = s6_env.read_text().strip()
         app = web.Application(client_max_size=512 * 1024 * 1024)
         app.add_routes([web.get("/", self.h_index), web.get("/api/data", self.h_data), web.post("/api/action", self.h_action),
-                        web.post("/api/upload", self.h_upload), web.post("/api/delete_file", self.h_delete_file),
+                        web.post("/api/upload", self.h_upload), web.post("/api/upload_chunk", self.h_upload_chunk),
+                        web.post("/api/delete_file", self.h_delete_file),
                         web.post("/api/rescan", self.h_rescan),
                         web.get("/thumbs/{name}", self.static_from(DATA / "thumbs")),
                         web.get("/covers/{name}", self.static_from(DATA / "covers"))])
