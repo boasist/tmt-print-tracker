@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TMT Print Tracker</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--ink:#1d2330;--muted:#6b7385;--line:#e3e6ec;--accent:#2f6fe4;--ok:#1f9d55;--warn:#d98b06;--bad:#d64545;--chip:#eef1f6}
+@media (prefers-color-scheme:dark){:root{--bg:#12151b;--card:#1b2029;--ink:#e7eaf0;--muted:#97a0b2;--line:#2a313d;--accent:#5b8ff0;--ok:#3cc47a;--warn:#f0a73a;--bad:#ef6b6b;--chip:#242b36}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:16px 20px;flex-wrap:wrap}
+header h1{font-size:22px;margin:0}
+header .sub{color:var(--muted)}
+header .conn{margin-left:auto;font-size:13px;color:var(--muted)}
+main{padding:0 20px 40px;max-width:1400px;margin:0 auto}
+section{margin:18px 0}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
+.row{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.notice{border-color:var(--warn)}
+.printer{display:grid;grid-template-columns:92px 1fr;gap:12px;align-items:start}
+.printer img{width:92px;height:92px;object-fit:contain;background:var(--chip);border-radius:8px}
+.printer .name{font-weight:600;font-size:16px}
+.muted{color:var(--muted)}
+.bar{height:8px;background:var(--chip);border-radius:6px;overflow:hidden;margin:8px 0 4px}
+.bar>i{display:block;height:100%;background:var(--accent);border-radius:6px;transition:width .4s}
+.bar.ok>i{background:var(--ok)}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:var(--chip);color:var(--muted);margin-right:4px;white-space:nowrap}
+.tag.ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.tag.warn{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.tag.bad{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.tag.now{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
+.big{font-size:26px;font-weight:700}
+button,select{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:4px 10px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.small{padding:0 8px;line-height:22px}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{font-size:12px;color:var(--muted);font-weight:600;background:var(--chip)}
+tr.group td{background:var(--chip);font-weight:600;font-size:13px}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+td.slot{text-align:center;min-width:54px}
+.code{color:var(--muted);font-variant-numeric:tabular-nums;margin-right:6px}
+.adj{white-space:nowrap}
+.toast{position:fixed;right:16px;bottom:16px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;opacity:0;transition:opacity .3s;max-width:420px}
+.toast.show{opacity:.95}
+.small-text td{font-size:13px}
+@media (max-width:600px){header,main{padding-left:16px;padding-right:16px}.hide-sm{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>TMT Print Tracker</h1>
+  <span class="sub" id="sub"></span>
+  <span class="conn" id="conn">loading…</span>
+</header>
+<main>
+  <section id="notices"></section>
+  <section><h2>Printers</h2><div class="row" id="printers"></div></section>
+  <section>
+    <h2>TMTs <span style="text-transform:none;letter-spacing:0">· planned <button class="small" onclick="setTarget(-1)">−</button> <b id="target">1</b> <button class="small" onclick="setTarget(1)">+</button></span></h2>
+    <div class="row" id="builds"></div>
+  </section>
+  <section><h2>Parts</h2><table id="parts"></table></section>
+  <section><h2>Recent prints</h2><table class="small-text" id="hist"></table></section>
+  <section>
+    <h2>Files</h2>
+    <div class="card" style="margin-bottom:10px">
+      <div id="profile" class="muted"></div>
+      <div style="margin-top:8px"><input type="file" id="upload" accept=".3mf" multiple> <button class="primary" onclick="upload()">Upload 3MF files</button> <button onclick="rescan()">Rescan</button> <span id="upmsg" class="muted"></span></div>
+    </div>
+    <table class="small-text" id="files"></table>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const ACTIVE=['prepare','running','pause','slicing','init'];
+let D=null;
+
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $=id=>document.getElementById(id);
+// Replace a section only when its content changed, and never while a menu in it is open.
+function setHTML(id,html){const el=$(id);const a=document.activeElement;if(el._html===html||(a&&a.tagName==='SELECT'&&el.contains(a)))return;el._html=html;el.innerHTML=html;}
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove('show'),4000);}
+
+async function load(){
+  try{D=await (await fetch('api/data',{cache:'no-store'})).json();$('conn').textContent=D.connected?'live':'Home Assistant offline';}
+  catch(e){$('conn').textContent='add-on not reachable';return;}
+  render();
+}
+async function post(path,body){
+  const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+  const out=await r.json().catch(()=>({ok:false,error:'bad response'}));
+  if(!out.ok) toast('Failed: '+(out.error||'unknown'));
+  await load(); return out;
+}
+const act=(cmd,data={})=>post('api/action',{cmd,...data});
+
+const cat=()=>D.catalog;
+const srcById=id=>cat().sources.find(s=>s.id===id);
+const srcLabel=s=>s?(s.plate_name?s.plate_name+' · ':'')+(s.title||s.file)+' · plate '+s.plate:'';
+const covered=(count,qty,k)=>Math.max(0,Math.min(qty,count-(k-1)*qty));
+
+function nowPrinting(){
+  const map={};
+  for(const p of D.printers){
+    const cur=(D.state.printers||{})[p.key]; const status=p.live.print_status||(cur&&cur.status);
+    if(!cur||!cur.source||cur.done||!ACTIVE.includes(status)) continue;
+    const s=srcById(cur.source); if(!s||!s.counts) continue;
+    for(const [pid,n] of Object.entries(s.yields)) (map[pid]=map[pid]||[]).push({printer:p.name,n,progress:p.live.print_progress});
+  }
+  return map;
+}
+
+function render(){
+  if(!D) return;
+  $('target').textContent=D.state.target;
+  const sm=D.summary;
+  $('sub').textContent=`${D.profile||'no profile'} · ${sm.assembled||0} assembled · ${sm.complete_in_pool||0} ready in printed parts`;
+  renderNotices(); renderPrinters(); renderBuilds(); renderParts(); renderHist(); renderFiles();
+}
+
+function renderNotices(){
+  const n=[];
+  if(D.profile_error) n.push(`<div class="card notice"><b>Profile problem:</b> ${esc(D.profile_error)}</div>`);
+  if(D.catalog.missing&&D.catalog.missing.length) n.push(`<div class="card notice"><b>${D.catalog.missing.length} design file(s) still needed</b> — upload them under Files below:
+    <ul>${D.catalog.missing.map(m=>`<li>${esc(m.title)}</li>`).join('')}</ul><span class="muted">Files are matched by the Title inside the 3MF, so the file name doesn't matter.</span></div>`);
+  if(!D.printers.length) n.push('<div class="card notice"><b>No printers.</b> Add your Bambu Lab printers to Home Assistant with the Bambu Lab integration, or list them in the add-on options.</div>');
+  setHTML('notices',n.join(''));
+}
+
+function assignSelect(onchange){
+  const opts=cat().sources.map(s=>`<option value="${esc(s.id)}">${esc((s.counts?'':'(not counted) ')+srcLabel(s))}</option>`).join('');
+  return `<select onchange="${onchange}"><option value="">which plate is this?</option>${opts}</select>`;
+}
+
+function renderPrinters(){
+  setHTML('printers',D.printers.map(p=>{
+    const cur=(D.state.printers||{})[p.key]||{}; const L=p.live; const status=L.print_status||cur.status||'unknown';
+    const prog=parseFloat(L.print_progress)||0, rem=parseFloat(L.remaining_time);
+    const s=srcById(cur.source); const active=ACTIVE.includes(status);
+    const img=s&&s.thumb?'thumbs/'+s.thumb:`covers/${p.key}.png?t=${encodeURIComponent(D.state.updated||'')}`;
+    let what;
+    if(active||status==='finish'||status==='failed'){
+      what=s?`<div>${esc(srcLabel(s))}</div><div class="muted">${s.counts?'counts toward TMTs':'not a TMT plate'} · matched by ${esc((cur.match||{}).by||'?')}</div>`
+        :`<div>${esc(L.task_name||cur.task||'')} · plate ${esc(cur.plate??'?')}</div><div><span class="tag warn">not recognised</span> ${assignSelect(`assignPrinter('${p.key}',this.value)`)}</div>`;
+    } else what='<div class="muted">idle</div>';
+    const tag=status==='finish'?'ok':status==='failed'?'bad':active?'now':'';
+    return `<div class="card printer"><img src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
+      <div><div class="name">${esc(p.name)} <span class="tag ${tag}">${esc(status)}</span></div>${what}
+      ${active?`<div class="bar"><i style="width:${prog}%"></i></div><div class="muted">${prog}%${isFinite(rem)?' · '+(rem>=1?rem.toFixed(1)+' h':Math.round(rem*60)+' min')+' left':''} · layer ${esc(L.current_layer||'?')}/${esc(L.total_layer_count||'?')}</div>`:''}
+      </div></div>`;
+  }).join(''));
+}
+
+function renderBuilds(){
+  const sl=D.summary.slots, first=sl.findIndex(x=>x.complete);
+  setHTML('builds',sl.map((x,i)=>{
+    const pct=x.of?Math.round(100*x.pieces/x.of):0;
+    const st=x.complete?'<span class="tag ok">all parts printed</span>':pct>0?'<span class="tag now">in progress</span>':'<span class="tag">not started</span>';
+    return `<div class="card"><div class="muted">TMT #${x.build}</div><div class="big">${pct}%</div>
+      <div class="bar ${x.complete?'ok':''}"><i style="width:${pct}%"></i></div><div>${st} <span class="muted">${Math.floor(x.pieces)} of ${x.of} pieces</span></div>
+      ${x.complete&&i===first?`<div style="margin-top:6px"><button class="primary" onclick="assembled(${x.build})">Mark TMT #${x.build} assembled</button></div>`:''}</div>`;
+  }).join(''));
+}
+
+function renderParts(){
+  const sl=D.summary.slots, now=nowPrinting(), counts=D.state.counts||{}, parts=cat().parts;
+  if(!parts.length){setHTML('parts','<tr><td class="muted">No parts yet: upload the design files under Files.</td></tr>');return;}
+  const cols=6+sl.length;
+  const chip=(c,q,k)=>{const v=covered(c,q,k);return v>=q?'<span class="tag ok">✓</span>':v>0?`<span class="tag warn">${v}/${q}</span>`:'<span class="tag">–</span>';};
+  const nowCell=pid=>(now[pid]||[]).map(x=>`<span class="tag now">${esc(x.printer)} +${x.n} · ${esc(x.progress??'?')}%</span>`).join('');
+  const row=(p,indent)=>`<tr><td${indent?' style="padding-left:36px"':''}><span class="code">${esc(p.code)}</span>${esc(p.name)}</td><td class="hide-sm muted">${esc(p.material)}</td>
+    <td class="num">${p.qty}</td><td class="num">${counts[p.id]||0}</td>${sl.map((x,i)=>`<td class="slot">${chip(counts[p.id]||0,p.qty,i+1)}</td>`).join('')}
+    <td>${nowCell(p.id)}</td><td class="adj"><button class="small" onclick="adjust('${p.id}',-1)">−</button> <button class="small" onclick="adjust('${p.id}',1)">+</button></td></tr>`;
+  let html=`<tr><th>Part</th><th class="hide-sm">Material</th><th class="num">Per TMT</th><th class="num">Printed</th>${sl.map(x=>`<th class="slot">#${x.build}</th>`).join('')}<th>Now</th><th></th></tr>`;
+  for(const g of [...new Set(parts.map(p=>p.group))]){
+    const ps=parts.filter(p=>p.group===g);
+    html+=`<tr class="group"><td colspan="${cols}">${esc(g)}${ps.every(p=>p.optional)?' — optional, not needed for a TMT to count as complete':''}</td></tr>`;
+    for(const alt of (cat().alternatives||[]).filter(a=>a.group===g)){
+      const best=k=>Math.max(...alt.options.map(o=>Math.min(...Object.entries(o.parts).map(([pid,q])=>covered(counts[pid]||0,q,k)/q))));
+      html+=`<tr><td><b>${esc(alt.name)}</b> <span class="muted">— either option</span></td><td class="hide-sm"></td><td class="num">${alt.qty}</td><td></td>${sl.map((x,i)=>{const b=best(i+1);return `<td class="slot">${b>=1?'<span class="tag ok">✓</span>':b>0?'<span class="tag warn">part</span>':'<span class="tag">–</span>'}</td>`;}).join('')}<td></td><td></td></tr>`;
+      for(const o of alt.options){
+        html+=`<tr><td colspan="${cols}" class="muted" style="padding-left:24px">${esc(o.label)}</td></tr>`;
+        for(const pid of Object.keys(o.parts)){const p=parts.find(x=>x.id===pid); if(p) html+=row(p,true);}
+      }
+    }
+    for(const p of ps.filter(p=>!p.alt)) html+=row(p);
+  }
+  setHTML('parts',html);
+}
+
+function renderHist(){
+  const rows=(D.state.log||[]).slice(-40).reverse();
+  if(!rows.length){setHTML('hist','<tr><td class="muted">No finished prints yet.</td></tr>');return;}
+  const t=s=>new Date(s).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+  const res=r=>({counted:'<span class="tag ok">counted</span>',failed:'<span class="tag bad">failed</span>',unmatched:'<span class="tag warn">not recognised</span>',
+    other:'<span class="tag">not a TMT plate</span>',imported:'<span class="tag">imported</span>',undone:'<span class="tag">undone</span>',adjusted:'<span class="tag">adjusted</span>',assembled:'<span class="tag ok">assembled</span>'}[r]||esc(r));
+  const pname=id=>(cat().parts.find(p=>p.id===id)||{}).name||id;
+  setHTML('hist','<tr><th>When</th><th>Printer</th><th>What</th><th>Result</th><th></th></tr>'+rows.map(e=>{
+    const s=srcById(e.source);
+    const what=e.result==='imported'?`${e.pieces} pieces of ${e.parts} parts`:e.result==='adjusted'?`${esc(pname(e.part))} ${e.delta>0?'+':''}${e.delta}`:e.result==='assembled'?`TMT #${e.build}`:s?esc(srcLabel(s)):`${esc(e.task||'')} · plate ${esc(e.plate??'?')}`;
+    const a=e.result==='unmatched'?assignSelect(`assignLog(${e.id},this.value)`):e.result==='counted'?`<button class="small" onclick="undo(${e.id})">undo</button>`:'';
+    const pr=(D.printers.find(p=>p.key===e.printer)||{}).name||e.printer||'';
+    return `<tr><td>${t(e.time)}</td><td>${esc(pr)}</td><td>${what}</td><td>${res(e.result)}</td><td>${a}</td></tr>`;
+  }).join(''));
+}
+
+function renderFiles(){
+  $('profile').innerHTML=`Build profile: <b>${esc(D.profile||'—')}</b> <span class="muted">(${esc(D.profile_path)})</span> · add-on ${esc(D.version)}`;
+  const f=cat().files||[];
+  setHTML('files',f.length?'<tr><th>File</th><th>Title inside</th><th>Plates</th><th>Used as</th><th></th></tr>'+f.map(x=>`<tr><td>${esc(x.file)}</td><td>${esc(x.title||x.error||'')}</td>
+    <td>${x.plates??''}</td><td>${x.profile_file?`<span class="tag ok">${esc(x.profile_file)}</span>`:'<span class="tag">other (recognised, not counted)</span>'}</td>
+    <td><button class="small" onclick="delFile('${esc(x.file).replace(/'/g,"\\'")}')">remove</button></td></tr>`).join(''):'<tr><td class="muted">No 3MF files yet.</td></tr>');
+}
+
+async function adjust(part,delta){const r=await act('adjust',{part,delta}); if(r.ok) toast(`${(cat().parts.find(p=>p.id===part)||{}).name}: ${r.count}`);}
+async function setTarget(d){await act('target',{count:Math.max(1,(D.state.target||1)+d)});}
+async function assembled(n){if(confirm(`Mark TMT #${n} as assembled? Its parts come out of the printed pool.`)){const r=await act('assembled'); if(r.ok) toast(`TMT #${n} assembled`);}}
+async function undo(id){if(confirm('Take this print back out of the counts?')) await act('undo',{log_id:id});}
+async function assignLog(id,source){if(source){const r=await act('assign',{log_id:id,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
+async function assignPrinter(printer,source){if(source){const r=await act('assign',{printer,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
+async function rescan(){await post('api/rescan');toast('Files rescanned');}
+async function delFile(file){if(confirm(`Remove ${file}? Counts are kept.`)) await post('api/delete_file',{file});}
+async function upload(){
+  const files=$('upload').files; if(!files.length){toast('Choose one or more .3mf files first');return;}
+  const fd=new FormData(); for(const f of files) fd.append('file',f,f.name);
+  $('upmsg').textContent='uploading…';
+  try{const r=await (await fetch('api/upload',{method:'POST',body:fd})).json();
+    $('upmsg').textContent=r.ok?`saved ${r.saved.length} file(s)`:'failed: '+r.error; $('upload').value='';}
+  catch(e){$('upmsg').textContent='upload failed';}
+  await load();
+}
+
+load(); setInterval(load,3000);
+</script>
+</body>
+</html>

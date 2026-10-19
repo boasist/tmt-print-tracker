@@ -1,0 +1,70 @@
+# Build profile: MakeGood's 3D Toddler Mobility Trainer (TMT), Rev C, with community variants.
+#
+# The design files themselves are NOT included (they belong to their designers). Download them as a maker (see
+# 3d-mobility.org) and upload them on the add-on's page. Files are matched by the Title stored inside the 3MF, so
+# the file names don't matter.
+#
+# Copy this file to profiles/my_build.yaml in the add-on's config folder and set the "profile" option to
+# profiles/my_build.yaml to change any choice below.
+name: MakeGood 3D Toddler Mobility Trainer (Rev C)
+default_material: PETG
+
+files:
+  all_parts:
+    title: 3D Toddler Mobility Trainer          # MakeGood, all parts, 0.6 mm nozzle
+  harness:
+    title: 3DTMT Harness and Straps Only        # harness and straps in TPU
+  tires:
+    title: 3DTMT Tires for .8mm HF Nozzle       # 8 tires per plate
+  grip_v2:
+    title: TMT Push Handle Grip                  # modified grip (plate 1 with logo, plate 2 without)
+  single_handle:
+    title: TMT Single Piece handle - H2S/D only. # one-piece push handle, H2-series printers only
+
+# Plates that count toward a TMT. Any other plate of these files (or of any other 3MF you upload) is still
+# recognised when printed, but logged as "not a TMT plate".
+plates:
+  - {file: all_parts, plates: [1, 2, 3, 4, 5, 6, 7, 8], group: Frame}      # handles, wheel mounts, wings, storage
+  - {file: all_parts, plates: [10], group: Frame}                           # rear caster mounts, kit version (9 = McMaster)
+  - {file: all_parts, plates: [28], group: Frame}                           # one-piece footrest (13 + 14 = two-piece)
+  - {file: all_parts, plates: [11, 12], group: Seat}
+  - {file: all_parts, plates: [22, 23], group: Seat, material: TPU}         # cushions
+  - {file: all_parts, plates: [15], group: Connectors}
+  - {file: all_parts, plates: [16], group: Wheels}                          # wheel rim Rev B, one per plate
+  - {file: tires, plates: [1, 2], group: Wheels, material: TPU}
+  - {file: single_handle, plates: [1], group: Push handle}
+  - {file: grip_v2, plates: [1], group: Push handle, material: TPU}
+  - {file: all_parts, plates: [20], group: Buckles & slides}
+  - {file: harness, plates: [1, 2, 3, 4], group: Harness & straps, material: TPU}
+  - {file: all_parts, plates: [17], group: Headrest, optional: true}
+  - {file: all_parts, plates: [24], group: Headrest, optional: true, material: TPU}
+
+group_order: [Frame, Seat, Connectors, Wheels, Push handle, Buckles & slides, Harness & straps, Headrest]
+
+# Pieces one TMT needs, where it isn't simply "what one plate holds".
+quantities:
+  wheel-rim: 4
+  tire: 16
+
+# One requirement that any one option satisfies (progress shows the best option). Example, for the two-piece push
+# handle instead of the single piece (also add all_parts plates 18 and 19 above):
+#   - id: push-handle
+#     name: Push handle
+#     group: Push handle
+#     options:
+#       - {label: Single piece (H2 only), parts: {single-piece-push-handle: 1}}
+#       - {label: Bottom + top + pin + 2 braces, parts: {push-handle-bottom: 1, push-handle-top: 1, push-handle-pin: 1, push-handle-brace: 2}}
+alternatives: []
+
+# Turn the object names inside the 3MF files into part ids and display names. Tried in order; the first match wins.
+# Anything else is cleaned up automatically ("3DTMT A1 HANDLE LEFT REV A.STEP" becomes "A1 Handle Left").
+part_rules:
+  - {match: '^8 Tires|\bTIRE\b', id: tire, name: Tire, code: P}
+  - {match: 'WHEEL RIM', id: wheel-rim, name: Wheel rim, code: O}
+  - {match: 'PUSH HANDLE GRIP', id: push-handle-grip, name: Push handle grip (V2)}
+  - {match: 'single ?piece ?handle', id: single-piece-push-handle, name: Single-piece push handle (H2 only)}
+  - {match: '^2\.0 cm - Side A', id: buckle-2cm-a, name: 'Buckle 2 cm, side A'}
+  - {match: '^2\.0 cm - Side B', id: buckle-2cm-b, name: 'Buckle 2 cm, side B'}
+  - {match: '^3\.2 cm - Side A', id: buckle-3-2cm-a, name: 'Buckle 3.2 cm, side A'}
+  - {match: '^3\.2 cm - Side B', id: buckle-3-2cm-b, name: 'Buckle 3.2 cm, side B'}
+strip_prefixes: '^(3D ?TMT|TMT3D|MG_)\s*-?\s*'
