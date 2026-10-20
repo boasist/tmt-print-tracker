@@ -21,13 +21,55 @@ def _meta(el):
     return {m.get("key"): m.get("value") for m in el.findall("metadata")}
 
 
+def _mesh_volume(z, path, objectid, cache):
+    """Volume (mm³) of one mesh object in a 3MF part file, from its triangles (sum of signed tetrahedra)."""
+    key = (path, objectid)
+    if key not in cache:
+        root = ET.fromstring(z.read(path.lstrip("/")))
+        ns = root.tag.split("}")[0].strip("{")
+        vol = 0.0
+        for obj in root.iter(f"{{{ns}}}object"):
+            if obj.get("id") != objectid:
+                continue
+            mesh = obj.find(f"{{{ns}}}mesh")
+            if mesh is None:
+                break
+            v = [(float(x.get("x")), float(x.get("y")), float(x.get("z"))) for x in mesh.find(f"{{{ns}}}vertices")]
+            for tr in mesh.find(f"{{{ns}}}triangles"):
+                a, b, c = v[int(tr.get("v1"))], v[int(tr.get("v2"))], v[int(tr.get("v3"))]
+                vol += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+                        + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6
+        cache[key] = abs(vol)
+    return cache[key]
+
+
+def _object_volumes(z, model):
+    """Build object id -> volume (cm³): its component meshes, each scaled by its transform's determinant. Used for a
+    rough print-time guess before a printer has printed a plate."""
+    ns = {"m": model.tag.split("}")[0].strip("{"), "p": "http://schemas.microsoft.com/3dmanufacturing/production/2015/06"}
+    cache, out = {}, {}
+    for obj in model.findall("m:resources/m:object", ns):
+        total = 0.0
+        try:
+            for comp in obj.findall("m:components/m:component", ns):
+                path = comp.get(f"{{{ns['p']}}}path") or "/3D/3dmodel.model"
+                m = [float(x) for x in (comp.get("transform") or "1 0 0 0 1 0 0 0 1 0 0 0").split()]
+                det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6])
+                total += _mesh_volume(z, path, comp.get("objectid"), cache) * abs(det)
+        except (KeyError, ValueError, ET.ParseError) as e:
+            log.debug("volume of object %s: %s", obj.get("id"), e)
+        out[obj.get("id")] = total / 1000
+    return out
+
+
 def read_3mf(path):
-    """Title, plates ({index: {name, objects: Counter}}) and plate previews ({index: png bytes}) of a 3MF."""
+    """Title, plates ({index: {name, objects: Counter, volume_cm3}}) and plate previews ({index: png bytes}) of a 3MF."""
     with zipfile.ZipFile(path) as z:
         names = set(z.namelist())
         model = ET.fromstring(z.read("3D/3dmodel.model"))
         ns = {"m": model.tag.split("}")[0].strip("{")}
         title = next((m.text or "" for m in model.findall("m:metadata", ns) if m.get("name") == "Title"), "").strip()
+        vols = _object_volumes(z, model)
         plates, thumbs = {}, {}
         if "Metadata/model_settings.config" in names:
             cfg = ET.fromstring(z.read("Metadata/model_settings.config"))
@@ -35,9 +77,11 @@ def read_3mf(path):
             for p in cfg.findall("plate"):
                 m = _meta(p)
                 idx = int(m.get("plater_id") or 0)
-                objs = Counter(objects.get(_meta(mi).get("object_id")) for mi in p.findall("model_instance"))
+                ids = [_meta(mi).get("object_id") for mi in p.findall("model_instance")]
+                objs = Counter(objects.get(i) for i in ids)
                 objs.pop(None, None)
-                plates[idx] = {"name": m.get("plater_name") or "", "objects": objs}
+                plates[idx] = {"name": m.get("plater_name") or "", "objects": objs,
+                               "volume_cm3": round(sum(vols.get(i, 0) for i in ids), 1)}
                 png = f"Metadata/plate_{idx}.png"
                 if png in names:
                     thumbs[idx] = z.read(png)
@@ -123,9 +167,10 @@ def build(profile, files_dir, thumbs_dir):
                 (thumbs_dir / thumb).write_bytes(f["thumbs"][idx])
             sources.append({"id": f"{digest}#{idx}", "file": path.name, "profile_file": key, "title": f["title"], "plate": idx,
                             "plate_name": pl["name"], "counts": rule is not None, "group": rule["group"] if rule else None,
-                            "yields": dict(yields), "thumb": thumb,
+                            "yields": dict(yields), "thumb": thumb, "volume_cm3": pl.get("volume_cm3"),
                             "names": sorted({re.sub(r"\.(step|stl|3mf|obj)(_\d+)?$", "", raw.strip(), flags=re.I)
-                                             for raw in pl["objects"]})})
+                                             for raw in pl["objects"]}),
+                            **({"printer_models": rule["printer_models"]} if rule and rule.get("printer_models") else {})})
     # A plate of a file the profile doesn't name (e.g. the same parts laid out for another printer, like a Snapmaker U1
     # project) counts when every part on it is a part of the build.
     if profile.get("count_other_files", True):

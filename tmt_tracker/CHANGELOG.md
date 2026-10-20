@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.1
+
+- Brings in 0.3.0 (print queue, phone alerts, printer details, print times, build planner) on top of the Moonraker,
+  projects and custom plate changes below. Moonraker printers take part in the queue and the planner too.
+
+## 0.3.0
+
+- **Print queue per printer**: the plates the planned TMTs still need, each on a printer that has the plate's filament
+  loaded, kept balanced and re-planned as prints finish, fail or change. Reorder, move, skip, restore and add plates;
+  set what filament a printer can print; turn a printer's queue off. A failed plate is retried first.
+- **Phone alerts** (option `notify`): when a print ends, the result, the TMT's progress and the next plate, with a
+  **Plate is clear** button. Option `alert_url` for where tapping it goes.
+- **Printer details**: click a printer for its camera (WebRTC or HLS through Home Assistant, else a picture every
+  2 seconds), printer alerts, the print, temperatures, fans, filament and AMS units, and nozzles.
+- **Print times per printer**: every print's slicer estimate and real printing time (paused time left out), with the
+  filament and nozzle. Shown on the queue with totals; edit, exclude, delete or add samples on the planner page.
+- **Build planner** (new page): each printer's setups in order (nozzle size, filament, part groups), your hours, and a
+  plan that keeps the printers busy, with a timeline and a "when you're needed" list. **Use this plan** sets the
+  queues, including when to swap the nozzle.
+- Profiles: `printer_models` on a plate rule keeps a plate on matching printers (the single-piece push handle on H2
+  printers). The catalog records each plate's model volume for rough time guesses.
+- Wide tables scroll on a phone instead of widening the page.
+
+
 ## 0.2.7
 
 - A project's parts list: **all printed** (parts printed before the tracker knew about the project) and **take N from

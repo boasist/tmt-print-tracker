@@ -10,5 +10,14 @@ configuration:
       Leave empty to use every Bambu Lab and Moonraker printer in Home Assistant. Or list them: a display name, the
       entity prefix (for sensor.my_printer_print_status the prefix is my_printer) and the type (bambu, the default, or
       moonraker, where sensor.my_u1_current_print_state has the prefix my_u1).
+  notify:
+    name: Phone alerts
+    description: >-
+      Notify services that get a "print done, next plate" alert with a Plate is clear button, e.g.
+      notify.mobile_app_my_phone (one per line). Leave empty for no alerts.
+  alert_url:
+    name: Alert link
+    description: >-
+      Where tapping an alert goes. Leave empty for this add-on's page.
   log_level:
     name: Log level

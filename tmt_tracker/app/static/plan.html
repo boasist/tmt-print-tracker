@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TMT Planner</title>
+<!-- The build planner. The scheduling runs here, in local time; the add-on supplies the plates, setups and
+     per-printer times (state.plan_data in api/data) and stores the plan this page applies to the print queues. -->
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--ink:#1d2330;--muted:#6b7385;--line:#e3e6ec;--accent:#2f6fe4;--ok:#1f9d55;--warn:#d98b06;--bad:#d64545;--chip:#eef1f6;--night:#e8ebf2;
+  --s0:#2f6fe4;--s1:#8a4fd6;--s2:#1f9d55;--s3:#d98b06}
+@media (prefers-color-scheme:dark){:root{--bg:#12151b;--card:#1b2029;--ink:#e7eaf0;--muted:#97a0b2;--line:#2a313d;--accent:#5b8ff0;--ok:#3cc47a;--warn:#f0a73a;--bad:#ef6b6b;--chip:#242b36;--night:#151922;
+  --s0:#5b8ff0;--s1:#a77ef0;--s2:#3cc47a;--s3:#f0a73a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:16px 20px;flex-wrap:wrap}
+header h1{font-size:22px;margin:0}
+header a{color:var(--accent);text-decoration:none}
+header .conn{margin-left:auto;font-size:13px;color:var(--muted)}
+main{padding:0 20px 40px;max-width:1400px;margin:0 auto}
+section{margin:18px 0}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
+h3{font-size:14px;margin:0 0 8px}
+.row{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.muted{color:var(--muted)}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:var(--chip);color:var(--muted);margin:0 4px 2px 0;white-space:nowrap}
+.tag.ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.tag.warn{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.tag.bad{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.tag.now{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
+.chip{cursor:pointer;user-select:none}
+.chip.off{opacity:.5}
+button,select,input{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:4px 10px}
+button{cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.small{padding:0 8px;line-height:22px}
+input[type=number]{width:76px}
+select{max-width:100%}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;font-size:13px}
+th{font-size:12px;color:var(--muted);font-weight:600;background:var(--chip)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.off td{opacity:.5}
+.scroll{overflow-x:auto;border-radius:12px}
+.setup{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;display:grid;gap:6px}
+.setup .top{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto auto;gap:6px;align-items:center}
+.setup .top input{min-width:0}
+.form{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+.form label{display:grid;gap:2px;font-size:13px;color:var(--muted)}
+.summary{display:flex;gap:18px;flex-wrap:wrap;align-items:baseline}
+.summary .big{font-size:22px;font-weight:700}
+/* timeline */
+.tlwrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+.tl{position:relative;min-height:40px}
+.tl-days{position:relative;height:22px;border-bottom:1px solid var(--line)}
+.tl-days span{position:absolute;top:3px;font-size:12px;color:var(--muted);white-space:nowrap;padding-left:4px;border-left:1px solid var(--line)}
+.tl-row{position:relative;height:58px;border-bottom:1px solid var(--line)}
+.tl-name{position:sticky;left:0;z-index:3;display:inline-block;background:var(--card);padding:4px 8px;font-weight:600;font-size:13px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:0 0 8px 0}
+.tl-night{position:absolute;top:0;bottom:0;background:var(--night)}
+.tl-now{position:absolute;top:0;bottom:0;width:2px;background:var(--bad);z-index:2}
+.tl-bar{position:absolute;top:18px;height:34px;border-radius:6px;color:#fff;font-size:11px;line-height:13px;padding:3px 5px;overflow:hidden;white-space:nowrap;z-index:1}
+.tl-bar.guess{background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.22) 0 6px,transparent 6px 12px)}
+.tl-bar.busy{background:var(--muted)!important}
+.tl-swap{position:absolute;top:14px;height:42px;width:4px;background:var(--bad);z-index:2;border-radius:2px}
+.legend span{margin-right:12px;font-size:13px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+.toast{position:fixed;right:16px;bottom:16px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;opacity:0;transition:opacity .3s;max-width:420px;z-index:9}
+.toast.show{opacity:.95}
+ol.events{margin:0;padding-left:0;list-style:none}
+ol.events li{margin:3px 0;font-size:14px}
+ol.events .day{margin:10px 0 2px;font-weight:600;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.05em}
+@media (max-width:600px){header,main{padding-left:16px;padding-right:16px}}
+</style>
+</head>
+<body>
+<header>
+  <a href="./">← TMT Print Tracker</a>
+  <h1>Build planner</h1>
+  <span class="conn" id="conn">connecting…</span>
+</header>
+<main>
+  <section><h2>What to print</h2><div class="card" id="what"></div></section>
+  <section><h2>Printers and their setups</h2>
+    <p class="muted" style="margin:0 0 10px">Each printer works through its setups in this order. A setup prints plates of its filament and groups
+      (none picked = any); changing nozzle size between setups is a swap you do at a plate change. For example: TPU on a 0.6,
+      then the straps on a 0.4, then PETG on the 0.6.</p>
+    <div class="row" id="setups"></div></section>
+  <section><h2>Your hours</h2><div class="card" id="hours"></div></section>
+  <section><h2>Plan</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="primary" onclick="makePlan()">Make the plan</button>
+      <button onclick="makePlan(true)" title="Search again with a different start">Try another</button>
+      <span id="planstate" class="muted" style="align-self:center"></span>
+    </div>
+    <div id="plan"></div></section>
+  <section><h2>Print times</h2>
+    <p class="muted" style="margin:0 0 10px">Each printer's own prints. The planner uses the median per plate (and nozzle size); paused time is
+      left out. Edit or exclude a sample that's off (a print that sat paused before pauses were tracked, say).</p>
+    <div id="times"></div></section>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const ACTIVE=['prepare','running','pause','slicing','init'];
+const NOZZLES=[0.2,0.4,0.6,0.8];
+let D=null, cat=null, st=null, PRINTERS=[], live={}, draft=null, plan=null, seed=1;
+
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $=id=>document.getElementById(id);
+function setHTML(id,html){const el=$(id);const a=document.activeElement;if(el._html===html||(a&&['SELECT','INPUT'].includes(a.tagName)&&el.contains(a)))return;el._html=html;el.innerHTML=html;}
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove('show'),4000);}
+const H=36e5, pname=n=>(PRINTERS.find(p=>p.key===n)||{name:n}).name;
+const hrs=h=>h>=1?h.toFixed(1)+' h':Math.round(h*60)+' min';
+const fmtT=d=>d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+const fmtD=d=>d.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'});
+const fmtDT=d=>(d.toDateString()===new Date().toDateString()?'':d.toLocaleDateString([],{weekday:'short'})+' ')+fmtT(d);
+
+// ------------------------------------------------------------------ data
+async function loadState(){
+  try{D=await (await fetch('api/data',{cache:'no-store'})).json(); $('conn').textContent=D.connected?'live':'Home Assistant offline';}
+  catch(e){$('conn').textContent='add-on not reachable'; return;}
+  cat=D.catalog; st=D.state; PRINTERS=D.printers.map(p=>({key:p.key,name:p.name,model:String(p.model||'').toUpperCase()}));
+  live={}; for(const p of D.printers) for(const [k,v] of Object.entries(p.live||{})) live[`sensor.${p.key}_${k}`]=v;
+  if(!draft) draft=JSON.parse(JSON.stringify(st.plan_cfg||{setups:{}}));
+  render();
+}
+const src=id=>cat.sources.find(s=>s.id===id);
+const label=s=>s?(s.plate_name||s.title):'?';
+const matsOf=s=>[...new Set(Object.keys(s.yields).map(pid=>((cat.parts.find(p=>p.id===pid)||{}).material||'').toUpperCase()).filter(Boolean))];
+const allMats=()=>[...new Set(cat.parts.map(p=>(p.material||'').toUpperCase()).filter(Boolean))];
+const allGroups=()=>[...new Set(cat.parts.map(p=>p.group))];
+async function tmt(cmd,data={}){
+  const r=await fetch('api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cmd,...data})});
+  const out=await r.json().catch(()=>({ok:false,error:'bad response'}));
+  if(!out.ok) toast('Failed: '+(out.error||'unknown'));
+  await loadState();
+  return out;
+}
+
+// ------------------------------------------------------------------ render
+function render(){if(!cat||!st) return; renderWhat(); renderSetups(); renderHours(); renderTimes(); if(!plan) setHTML('plan',planBanner());}
+
+function planBanner(){
+  const p=st.plan; if(!p) return '<div class="muted">No plan in use: the queues fill and balance themselves.</div>';
+  const s=p.summary||{};
+  return `<div class="card">Queues follow the plan made ${esc(fmtDT(new Date(p.applied)))}${s.done?`, build done ≈ <b>${esc(fmtD(new Date(s.done))+' '+fmtT(new Date(s.done)))}</b>`:''}.
+    <button class="small" onclick="clearPlan()">stop following it</button></div>`;
+}
+
+function renderWhat(){
+  const jobs=(st.plan_data||{}).jobs||[], groups={};
+  for(const j of jobs){const s=src(j.source); if(!s) continue; const g=s.group||'Other'; (groups[g]=groups[g]||[]).push({j,s});}
+  const slot=(st.summary||{slots:[]}).slots[0]||{};
+  setHTML('what',`<div class="summary"><div><span class="big">${jobs.length}</span> <span class="muted">plates to print</span></div>
+    <div class="muted">for ${st.target} planned TMT${st.target===1?'':'s'} <button class="small" onclick="setTarget(-1)">−</button> <b>${st.target}</b> <button class="small" onclick="setTarget(1)">+</button>
+      · TMT #${slot.tmt||1}: ${Math.floor(slot.pieces||0)} of ${slot.of||0} pieces printed</div></div>
+    <div style="margin-top:8px">${Object.entries(groups).map(([g,xs])=>`<div style="margin:4px 0"><span class="muted">${esc(g)}:</span> ${
+      Object.values(xs.reduce((m,{j,s})=>{const k=s.id+(j.printer||'')+(j.manual?'m':'');(m[k]=m[k]||{s,j,n:0}).n++;return m;},{})).map(({s,j,n})=>
+        `<span class="tag">${n>1?n+' × ':''}${esc(label(s))}${j.printer?` · on ${esc(pname(j.printer))}`:''}${j.manual?' · added by you':''}</span>`).join('')}</div>`).join('')}</div>
+    ${jobs.length?'':'<div class="muted">Nothing left to print for the planned TMTs. Raise the number above to plan the next one.</div>'}`);
+}
+
+function renderSetups(){
+  const mats=allMats(), groups=allGroups(), S=draft.setups||{};
+  setHTML('setups',PRINTERS.map(p=>{
+    const list=S[p.key]||[], now=((st.plan_data||{}).nozzle_now||{})[p.key];
+    return `<div class="card"><h3>${esc(p.name)} <span class="muted" style="font-weight:400">${now?`· ${now} nozzle fitted now`:''}</span></h3>
+      ${list.map((s,i)=>`<div class="setup"><div class="top"><b>${i+1}.</b><input value="${esc(s.name)}" onchange="editSetup('${p.key}',${i},'name',this.value)">
+        <select onchange="editSetup('${p.key}',${i},'nozzle',+this.value)">${NOZZLES.map(n=>`<option value="${n}"${n===s.nozzle?' selected':''}>${n} mm</option>`).join('')}</select>
+        <button class="small" onclick="moveSetup('${p.key}',${i},-1)"${i===0?' disabled':''}>↑</button><button class="small" onclick="moveSetup('${p.key}',${i},1)"${i===list.length-1?' disabled':''}>↓</button>
+        <button class="small" onclick="delSetup('${p.key}',${i})">✕</button></div>
+        <div>${mats.map(m=>`<span class="tag chip ${s.materials.includes(m)?'ok':'off'}" onclick="toggleIn('${p.key}',${i},'materials','${esc(m)}')">${esc(m)}</span>`).join('')}${s.materials.length?'':'<span class="muted" style="font-size:12px">(any filament)</span>'}
+          <span class="muted" style="font-size:12px">groups:</span> ${groups.map(g=>`<span class="tag chip ${s.groups.includes(g)?'now':'off'}" onclick="toggleIn('${p.key}',${i},'groups',${esc(JSON.stringify(g))})">${esc(g)}</span>`).join('')}
+          ${s.groups.length?'':'<span class="muted" style="font-size:12px">(any group)</span>'}</div></div>`).join('')}
+      <button class="small" onclick="addSetup('${p.key}')">+ add a setup</button></div>`;
+  }).join(''));
+}
+function editSetup(pk,i,k,v){draft.setups[pk][i][k]=v; dirty();}
+function toggleIn(pk,i,k,v){const a=draft.setups[pk][i][k]; const j=a.indexOf(v); if(j>=0) a.splice(j,1); else a.push(v); dirty(); renderSetups();}
+function moveSetup(pk,i,d){const a=draft.setups[pk]; const j=i+d; [a[i],a[j]]=[a[j],a[i]]; dirty(); renderSetups();}
+function delSetup(pk,i){draft.setups[pk].splice(i,1); dirty(); renderSetups();}
+function addSetup(pk){(draft.setups[pk]=draft.setups[pk]||[]).push({name:'New setup',nozzle:0.6,materials:[],groups:[]}); dirty(); renderSetups();}
+
+function renderHours(){
+  const c=draft;
+  setHTML('hours',`<div class="form">
+    <label>I can clear plates from<input type="time" value="${esc(c.day_start)}" onchange="draft.day_start=this.value;dirty()"></label>
+    <label>until<input type="time" value="${esc(c.day_end)}" onchange="draft.day_end=this.value;dirty()"></label>
+    <label>Plate change (min)<input type="number" min="0" value="${esc(c.turnaround_min)}" onchange="draft.turnaround_min=+this.value;dirty()"></label>
+    <label>Nozzle swap (min)<input type="number" min="0" value="${esc(c.swap_min)}" onchange="draft.swap_min=+this.value;dirty()"></label>
+    <label>Time for a plate with no data (h)<input type="number" min="0.25" step="0.25" value="${esc(c.default_h)}" onchange="draft.default_h=+this.value;dirty()"></label>
+    <label style="display:flex;gap:6px;align-items:center;color:var(--ink)"><input type="checkbox"${c.keep_moved?' checked':''} onchange="draft.keep_moved=this.checked;dirty()"> keep plates on the printer I put them on</label>
+    <button id="savecfg" class="primary" onclick="saveCfg()" disabled>Save</button></div>`);
+}
+function dirty(){const b=$('savecfg'); if(b) b.disabled=false; $('planstate').textContent='Settings changed: save them, then make the plan again.';}
+async function saveCfg(){const r=await tmt('plan_cfg',{day_start:draft.day_start,day_end:draft.day_end,turnaround_min:draft.turnaround_min,swap_min:draft.swap_min,
+  default_h:draft.default_h,keep_moved:draft.keep_moved,setups:draft.setups}); if(r.ok){draft=JSON.parse(JSON.stringify(r.plan_cfg)); toast('Saved'); $('planstate').textContent=''; render();}}
+async function setTarget(d){await tmt('target',{count:Math.max(1,(st.target||1)+d)}); plan=null; render();}
+async function clearPlan(){if(confirm('Stop following the plan? The queues go back to filling and balancing themselves.')){await tmt('plan_clear'); toast('Queues are automatic again');}}
+
+// ------------------------------------------------------------------ scheduling
+// A print can only start while you're around (day_start..day_end); one that ends at night waits until morning.
+// The search orders and assigns plates (within each printer's setup order) to finish the build soonest, then to waste
+// the least printer time. Seeded, so the same inputs give the same plan.
+function hm(s){const [h,m]=String(s).split(':').map(Number); return h*60+(m||0);}
+function avail(t,cfg){   // the first moment at or after t when you're around
+  const d=new Date(t), mins=d.getHours()*60+d.getMinutes(), a=hm(cfg.day_start), b=hm(cfg.day_end);
+  if(mins>=a&&mins<b) return t;
+  const n=new Date(d); n.setSeconds(0,0); if(mins>=b) n.setDate(n.getDate()+1); n.setHours(Math.floor(a/60),a%60,0,0);
+  return n.getTime();
+}
+function rng(seed){return ()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+function planInputs(cfg){
+  const pdat=st.plan_data||{jobs:[],times:{}}, now=Date.now(), problems=[];
+  const jobs=pdat.jobs.map((j,i)=>{
+    const s=src(j.source), mats=matsOf(s), opts=[];
+    for(const p of PRINTERS){
+      if(s.printers&&!s.printers.includes(p.key)) continue;
+      if(s.printer_models&&!s.printer_models.some(m=>p.model.startsWith(String(m).toUpperCase()))) continue;   // e.g. H2-only plates
+      if(cfg.keep_moved&&j.printer&&j.printer!==p.key) continue;
+      (cfg.setups[p.key]||[]).forEach((u,k)=>{
+        if(u.materials.length&&!mats.every(m=>u.materials.includes(m))) return;
+        if(u.groups.length&&!u.groups.includes(s.group)) return;
+        const t=((pdat.times[p.key]||{})[String(u.nozzle)]||{})[s.id];
+        opts.push({pr:p.key,stage:k,h:t?t.h:cfg.default_h,basis:t?t.basis:'default',guess:!t||t.basis==='guess'});
+      });
+    }
+    if(!opts.length) problems.push(`${label(s)} (${mats.join(', ')}${j.printer&&cfg.keep_moved?`, kept on ${pname(j.printer)}`:''}): no setup can print it`);
+    return {i,source:j.source,manual:!!j.manual,s,opts};
+  }).filter(j=>j.opts.length);
+  const start={};
+  for(const p of PRINTERS){
+    const status=live[`sensor.${p.key}_print_status`]||'', cur=(st.printers||{})[p.key]||{};
+    let free=now;
+    if(ACTIVE.includes(status)){
+      const end=Date.parse(live[`sensor.${p.key}_end_time`]||''), rem=parseFloat(live[`sensor.${p.key}_remaining_time`]);
+      free=isFinite(end)&&end>now?end:isFinite(rem)?now+rem*H:now;
+    }
+    start[p.key]={free,busy:ACTIVE.includes(status)?(src(cur.source)?label(src(cur.source)):(live[`sensor.${p.key}_task_name`]||'printing')):null,nozzle:(pdat.nozzle_now||{})[p.key]};
+  }
+  return {jobs,start,problems,now};
+}
+
+function simulate(sol,inp,cfg){   // sol: printer -> [[job,...] per stage]
+  const turn=cfg.turnaround_min*6e4, swap=cfg.swap_min*6e4;
+  let end=inp.now, idle=0, sumEnd=0, out={};
+  for(const p of PRINTERS){
+    const s0=inp.start[p.key]; let t=s0.free, noz=s0.nozzle, ev=[];
+    (sol[p.key]||[]).forEach((list,k)=>{
+      if(!list.length) return;
+      const u=cfg.setups[p.key][k];
+      for(const j of list){
+        const o=j.opts.find(o=>o.pr===p.key&&o.stage===k);
+        let at=avail(t,cfg), sw=null;
+        if(noz!=null&&Math.abs(u.nozzle-noz)>0.01){sw={at,from:noz,to:u.nozzle}; at=avail(at+swap,cfg); noz=u.nozzle;}
+        else if(noz==null) noz=u.nozzle;
+        const startAt=at+turn, fin=startAt+o.h*H;
+        idle+=startAt-t; sumEnd+=fin;
+        ev.push({job:j,stage:k,setup:u.name,nozzle:u.nozzle,clearAt:at,start:startAt,end:fin,h:o.h,basis:o.basis,guess:o.guess,swap:sw,wait:avail(fin,cfg)-fin});
+        t=fin;
+      }
+    });
+    out[p.key]=ev; end=Math.max(end,t);
+  }
+  const n=inp.jobs.length||1;
+  return {cost:(end-inp.now)/H+0.15*idle/H+0.01*(sumEnd/n-inp.now)/H, end, idle:idle/H, events:out};
+}
+
+function search(inp,cfg,seedv){
+  const R=rng(seedv), sol={};
+  for(const p of PRINTERS) sol[p.key]=(cfg.setups[p.key]||[]).map(()=>[]);
+  // start: longest plates first, each where it finishes soonest by total load
+  const load={}; for(const p of PRINTERS) load[p.key]=(inp.start[p.key].free-inp.now)/H;
+  for(const j of [...inp.jobs].sort((a,b)=>Math.max(...b.opts.map(o=>o.h))-Math.max(...a.opts.map(o=>o.h)))){
+    const o=j.opts.reduce((a,b)=>load[b.pr]+b.h<load[a.pr]+a.h?b:a);
+    sol[o.pr][o.stage].push(j); load[o.pr]+=o.h;
+  }
+  const clone=s=>Object.fromEntries(Object.entries(s).map(([k,v])=>[k,v.map(l=>[...l])]));
+  let cur=sol, curC=simulate(cur,inp,cfg).cost, best=clone(cur), bestC=curC;
+  const N=inp.jobs.length?Math.min(30000,2000*inp.jobs.length):0;
+  for(let it=0;it<N;it++){
+    const T=2*Math.pow(0.002/2,it/N), next=clone(cur), lists=[];
+    for(const p of PRINTERS) next[p.key].forEach((l,k)=>lists.push([p.key,k,l]));
+    const nonEmpty=lists.filter(x=>x[2].length);
+    if(!nonEmpty.length) break;
+    const [pa,ka,la]=nonEmpty[Math.floor(R()*nonEmpty.length)], ia=Math.floor(R()*la.length), j=la[ia];
+    if(R()<0.5&&la.length>1){   // swap two plates within a setup
+      const ib=Math.floor(R()*la.length); [la[ia],la[ib]]=[la[ib],la[ia]];
+    } else {                    // move a plate to another place it can print
+      const o=j.opts[Math.floor(R()*j.opts.length)];
+      la.splice(ia,1); const lb=next[o.pr][o.stage]; lb.splice(Math.floor(R()*(lb.length+1)),0,j);
+    }
+    const c=simulate(next,inp,cfg).cost;
+    if(c<curC||R()<Math.exp((curC-c)/T)){cur=next; curC=c; if(c<bestC){best=clone(next); bestC=c;}}
+  }
+  return simulate(best,inp,cfg);
+}
+
+function makePlan(again){
+  if(!cat||!st) return;
+  const cfg=JSON.parse(JSON.stringify(st.plan_cfg||draft));
+  if(again) seed++;
+  const inp=planInputs(cfg);
+  if(!inp.jobs.length){plan=null; setHTML('plan',`<div class="card">${inp.problems.length?`<span style="color:var(--bad)">No setup can print: ${inp.problems.map(esc).join('; ')}</span>`:'Nothing to plan: every plate for the planned TMTs is printed or printing. Raise the number of planned TMTs above.'}</div>`); return;}
+  const t0=performance.now(), res=search(inp,cfg,seed);
+  plan={res,inp,cfg};
+  $('planstate').textContent=`${inp.jobs.length} plates, planned in ${Math.round(performance.now()-t0)} ms`;
+  renderPlan();
+}
+
+function renderPlan(){
+  const {res,inp,cfg}=plan, all=PRINTERS.flatMap(p=>res.events[p.key]);
+  const guesses=all.filter(e=>e.guess).length, swaps=all.filter(e=>e.swap).length;
+  const idleBy=PRINTERS.map(p=>{let t=inp.start[p.key].free, w=0; for(const e of res.events[p.key]){w+=e.start-t; t=e.end;} return `${p.name} ${hrs(w/H)}`;});
+  // timeline
+  const t0=inp.now, t1=Math.max(res.end,t0+12*H), span=(t1-t0)/H, W=Math.max(700,Math.min(2400,span*16)), px=W/span;
+  const x=t=>((t-t0)/H*px).toFixed(1)+'px';
+  let nights='', days='';
+  for(let d=new Date(t0);d.getTime()<t1+24*H;d.setDate(d.getDate()+1)){
+    const day=new Date(d); day.setHours(0,0,0,0);
+    const a=hm(cfg.day_start), b=hm(cfg.day_end), dayStart=day.getTime()+a*6e4, dayEnd=day.getTime()+b*6e4;
+    const prevEnd=dayEnd-24*H;
+    for(const [n0,n1] of [[prevEnd,dayStart],[dayEnd,dayStart+24*H]]){const l=Math.max(n0,t0), r=Math.min(n1,t1); if(r>l) nights+=`<div class="tl-night" style="left:${x(l)};width:${((r-l)/H*px).toFixed(1)}px"></div>`;}
+    if(day.getTime()>=t0&&day.getTime()<=t1) days+=`<span style="left:${x(day.getTime())}">${esc(fmtD(day))}</span>`;
+  }
+  const colors=['var(--s0)','var(--s1)','var(--s2)','var(--s3)'];
+  const rows=PRINTERS.map(p=>{
+    const s0=inp.start[p.key];
+    const busy=s0.busy&&s0.free>t0?`<div class="tl-bar busy" style="left:0;width:${((s0.free-t0)/H*px).toFixed(1)}px" title="${esc('Printing now: '+s0.busy)}">${esc(s0.busy)}</div>`:'';
+    const bars=res.events[p.key].map(e=>`${e.swap?`<div class="tl-swap" style="left:${x(e.swap.at)}" title="${esc(`Swap to the ${e.nozzle} nozzle`)}"></div>`:''}<div class="tl-bar${e.guess?' guess':''}" style="left:${x(e.start)};width:${Math.max(3,e.h*px).toFixed(1)}px;background:${colors[e.stage%4]}"
+      title="${esc(`${label(e.job.s)} · ${e.setup}\n${fmtDT(new Date(e.start))} → ${fmtDT(new Date(e.end))} (${e.guess?'≈':''}${hrs(e.h)}, ${e.basis})${e.wait>6e4?`\nwaits ${hrs(e.wait/H)} for you`:''}`)}">${esc(label(e.job.s))}<br>${e.guess?'≈':''}${esc(hrs(e.h))}</div>`).join('');
+    return `<div class="tl-row">${nights}${busy}${bars}<span class="tl-name">${esc(p.name)}</span></div>`;
+  }).join('');
+  const nowLine=`<div class="tl-now" style="left:0"></div>`;
+  const legend=PRINTERS.flatMap(p=>(cfg.setups[p.key]||[]).map((u,k)=>res.events[p.key].some(e=>e.stage===k)?`<span><i style="background:${colors[k%4]}"></i>${esc(p.name)}: ${esc(u.name)}</span>`:'')).join('')
+    +'<span><i style="background:var(--night);border:1px solid var(--line)"></i>you\'re away</span><span><i style="background:var(--bad);width:4px"></i>nozzle swap</span><span><i class="tl-bar guess" style="position:static;display:inline-block;background-color:var(--muted)"></i>guessed time</span>';
+  // what you do and when
+  const acts=[];
+  for(const p of PRINTERS){
+    let first=true;
+    for(const e of res.events[p.key]){
+      if(e.swap) acts.push({t:e.swap.at,txt:`<b>${esc(p.name)}</b>: swap to the <b>${e.nozzle} nozzle</b> (${esc(e.setup)})`});
+      const waited=e.wait>6e4?` · done ${esc(fmtDT(new Date(e.end)))}, then waits ${hrs(e.wait/H)} for you`:` · done ${esc(fmtDT(new Date(e.end)))}`;
+      acts.push({t:e.clearAt,txt:`<b>${esc(p.name)}</b>: ${first&&!inp.start[p.key].busy&&!(((st.bed||{})[p.key]||{}).state==='needs_clearing')?'':'clear the plate, '}start <b>${esc(label(e.job.s))}</b> <span class="muted">(${e.guess?'≈':''}${hrs(e.h)}${waited})</span>`});
+      first=false;
+    }
+  }
+  acts.sort((a,b)=>a.t-b.t);
+  let lastDay='', list='';
+  for(const a of acts){const d=new Date(a.t), k=d.toDateString(); if(k!==lastDay){list+=`<li class="day">${esc(fmtD(d))}</li>`; lastDay=k;} list+=`<li><span class="muted">${esc(fmtT(d))}</span> ${a.txt}</li>`;}
+  setHTML('plan',`<div class="card" style="margin-bottom:12px"><div class="summary">
+      <div><span class="muted">Build done ≈</span> <span class="big">${esc(fmtD(new Date(res.end))+', '+fmtT(new Date(res.end)))}</span></div>
+      <div class="muted">waiting time: ${esc(idleBy.join(', '))} · ${swaps} nozzle swap${swaps===1?'':'s'} · ${guesses?`<span style="color:var(--warn)">${guesses} of ${all.length} plates use a guessed time</span>`:'all times from your prints'}</div></div>
+      ${inp.problems.length?`<div style="margin-top:8px;color:var(--bad)">Not in the plan: ${inp.problems.map(esc).join('; ')}</div>`:''}
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="primary" onclick="applyPlan()">Use this plan</button>
+        <span class="muted" style="align-self:center">Sets both print queues to this order, with the setup and nozzle for each plate.</span></div></div>
+    <div class="tlwrap"><div class="tl" style="width:${W}px"><div class="tl-days">${days}</div>${nowLine}${rows}</div></div>
+    <div class="legend" style="margin:8px 0 14px">${legend}</div>
+    <div class="card"><h3>When you're needed</h3><ol class="events">${list||'<li class="muted">Nothing to do.</li>'}</ol></div>`);
+}
+
+async function applyPlan(){
+  if(!plan) return;
+  const {res}=plan, iso=t=>new Date(t).toISOString(), queues={};
+  for(const p of PRINTERS) queues[p.key]=res.events[p.key].map(e=>({source:e.job.source,setup:e.setup,nozzle:e.nozzle,start:iso(e.start),end:iso(e.end),h:e.h,guess:e.guess,manual:e.job.manual}));
+  const all=PRINTERS.flatMap(p=>res.events[p.key]);
+  const r=await tmt('plan_apply',{queues,summary:{done:iso(res.end),idle_h:+res.idle.toFixed(2),swaps:all.filter(e=>e.swap).length,guesses:all.filter(e=>e.guess).length}});
+  if(r.ok) toast(`Plan in use: ${r.applied} plates in the queues`);
+}
+
+// ------------------------------------------------------------------ print time samples
+function renderTimes(){
+  const T=(st.times||[]).slice().reverse();
+  const noz=r=>(r.nozzle||[]).map(n=>`${n.side?n.side+' ':''}${n.size??'?'}`).join(' + ');
+  const res=r=>({counted:'',other:'<span class="tag">not a TMT plate</span>',failed:'<span class="tag bad">failed</span>',unmatched:'<span class="tag warn">not recognised</span>',manual:'<span class="tag">added by you</span>'}[r.result]??esc(r.result));
+  const opts=cat.sources.filter(s=>s.counts).map(s=>`<option value="${esc(s.id)}">${esc(label(s)+' · plate '+s.plate)}</option>`).join('');
+  const rows=T.map(r=>{const s=src(r.source), usable=['counted','other','manual'].includes(r.result);
+    return `<tr class="${r.excluded||!usable?'off':''}"><td>${esc(new Date(r.start).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))}</td><td><b>${esc(pname(r.printer))}</b></td>
+      <td>${esc(s?label(s):(r.source||'?'))} ${res(r)}${r.excluded?'<span class="tag">excluded</span>':''}${r.edited?'<span class="tag">edited</span>':''}${r.backfilled?'<span class="tag">from history</span>':''}</td>
+      <td>${esc(noz(r))}</td><td>${esc((r.filament||{}).name||'')}</td><td class="num">${r.est_h?esc(hrs(r.est_h)):''}</td>
+      <td class="num"><b>${esc(hrs(r.hours))}</b>${r.measured_h&&r.measured_h!==r.hours?` <span class="muted">(was ${esc(hrs(r.measured_h))})</span>`:''}</td><td class="num">${r.paused_h?esc(hrs(r.paused_h)):''}</td>
+      <td style="white-space:nowrap"><button class="small" onclick="editTime('${r.id}',${r.hours})">edit</button> <button class="small" onclick="exclTime('${r.id}',${!r.excluded})">${r.excluded?'include':'exclude'}</button> <button class="small" onclick="delTime('${r.id}')">✕</button></td></tr>`;}).join('');
+  setHTML('times',`<div class="scroll"><table><tr><th>Started</th><th>Printer</th><th>Plate</th><th>Nozzle</th><th>Filament</th><th class="num">Slicer said</th><th class="num">Printing time</th><th class="num">Paused</th><th></th></tr>
+    ${rows||'<tr><td colspan="9" class="muted">No prints recorded yet.</td></tr>'}</table></div>
+    <div class="card" style="margin-top:10px"><div class="form"><b style="align-self:center">Add a time you know</b>
+      <label>Printer<select id="ta-pr">${PRINTERS.map(p=>`<option value="${p.key}">${esc(p.name)}</option>`).join('')}</select></label>
+      <label>Plate<select id="ta-src">${opts}</select></label>
+      <label>Nozzle<select id="ta-noz">${NOZZLES.map(n=>`<option${n===0.6?' selected':''}>${n}</option>`).join('')}</select></label>
+      <label>Hours<input id="ta-h" type="number" min="0.1" step="0.05"></label>
+      <button onclick="addTime()">Add</button></div></div>`);
+}
+async function editTime(id,h){const v=prompt('Printing time in hours (leave out time it sat paused or waiting):',h); if(v!==null&&v!=='') await tmt('time_edit',{id,hours:parseFloat(v)});}
+async function exclTime(id,ex){await tmt('time_exclude',{id,exclude:ex});}
+async function delTime(id){if(confirm('Delete this print time sample?')) await tmt('time_delete',{id});}
+async function addTime(){const r=await tmt('time_add',{printer:$('ta-pr').value,source:$('ta-src').value,nozzle:parseFloat($('ta-noz').value),hours:parseFloat($('ta-h').value)}); if(r.ok) toast('Added');}
+
+loadState(); setInterval(()=>{if(!plan) loadState();},15000);
+</script>
+</body>
+</html>
