@@ -59,6 +59,20 @@ It watches your **Bambu Lab** printers, keeps the parts list for you, and plans 
 Your printers are found automatically. See [the documentation](tmt_tracker/DOCS.md) for the queue, alerts, planner,
 options and for changing the build (which plates count, quantities, either/or parts).
 
+## Updating
+
+Home Assistant checks this repository for new versions on its own, and lists an update for **TMT Print Tracker**
+under **Settings** when one is out.
+
+1. To look right away: **Settings → Apps (Add-ons) → App store → ⋮ → Check for updates**.
+2. Open **TMT Print Tracker** and press **Update**. Leave **create a backup** ticked if you'd like to be able to go back.
+3. Reload the **TMT** page in your browser.
+
+What changed in each version is on the app's **Changelog** tab (and in [CHANGELOG.md](tmt_tracker/CHANGELOG.md)). Your
+counts, history, queues, print times, plans and uploaded 3MF files are kept across updates. To install updates
+automatically, turn on **Auto update** on the app's page. The version you're running is shown under **Files** on the
+TMT page.
+
 ## The default build
 
 The built-in profile follows MakeGood's 3D Toddler Mobility Trainer, Rev C, with these choices: one-piece footrest,
