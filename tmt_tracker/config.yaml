@@ -1,5 +1,5 @@
 name: TMT Print Tracker
-version: "0.1.2"
+version: "0.3.0"
 slug: tmt_tracker
 description: >-
   Track the 3D-printed parts of Toddler Mobility Trainer (TMT) builds from your Bambu Lab printers: every part, which
@@ -20,10 +20,14 @@ map:
 options:
   profile: makegood_tmt_rev_c
   printers: []
+  notify: []
   log_level: info
 schema:
   profile: str
   printers:
     - name: str
       entity_prefix: str
+  notify:
+    - str
+  alert_url: str?
   log_level: list(debug|info|warning|error)

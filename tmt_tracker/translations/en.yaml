@@ -9,5 +9,14 @@ configuration:
     description: >-
       Leave empty to use every Bambu Lab printer in Home Assistant. Or list them: a display name and the entity prefix
       (for sensor.my_printer_print_status the prefix is my_printer).
+  notify:
+    name: Phone alerts
+    description: >-
+      Notify services that get a "print done, next plate" alert with a Plate is clear button, e.g.
+      notify.mobile_app_my_phone (one per line). Leave empty for no alerts.
+  alert_url:
+    name: Alert link
+    description: >-
+      Where tapping an alert goes. Leave empty for this add-on's page.
   log_level:
     name: Log level

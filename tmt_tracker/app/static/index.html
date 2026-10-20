@@ -16,7 +16,7 @@ header .conn{margin-left:auto;font-size:13px;color:var(--muted)}
 main{padding:0 20px 40px;max-width:1400px;margin:0 auto}
 section{margin:18px 0}
 h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
-.row{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+.row{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr))}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
 .notice{border-color:var(--warn)}
 .printer{display:grid;grid-template-columns:92px 1fr;gap:12px;align-items:start}
@@ -46,7 +46,41 @@ td.slot{text-align:center;min-width:54px}
 .toast{position:fixed;right:16px;bottom:16px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;opacity:0;transition:opacity .3s;max-width:420px}
 .toast.show{opacity:.95}
 .small-text td{font-size:13px}
-@media (max-width:600px){header,main{padding-left:16px;padding-right:16px}.hide-sm{display:none}}
+.scroll{overflow-x:auto;border-radius:12px}   /* wide tables scroll sideways on a phone instead of widening the page */
+select{max-width:100%}
+.printer{cursor:pointer}
+.printer:hover{border-color:var(--accent)}
+.printer .more{float:right;font-size:13px;font-weight:400;color:var(--muted)}
+.qhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.qhead>b{font-size:16px}
+.qlist{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.qlist li{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px;border:1px solid var(--line);border-radius:8px}
+.qlist li.first{border-color:var(--accent)}
+.qlist li.div{display:block;border:none;padding:4px 2px 0;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.qlist img{width:40px;height:40px;object-fit:contain;background:var(--chip);border-radius:6px}
+.qbtns{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.chip{cursor:pointer;user-select:none}
+.chip.off{opacity:.5;text-decoration:line-through}
+dialog.pop{border:none;border-radius:14px;padding:0;background:var(--card);color:var(--ink);width:min(1000px,calc(100% - 32px));max-height:calc(100% - 32px);box-shadow:0 12px 48px rgba(0,0,0,.4)}
+dialog.pop::backdrop{background:rgba(0,0,0,.55)}
+.pop-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1}
+.pop-head .name{font-weight:700;font-size:18px}
+.pop-head button{margin-left:auto}
+.pop-body{padding:14px 16px 18px;display:grid;gap:14px}
+.cam{background:#000;border-radius:10px;overflow:hidden;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center}
+.cam video,.cam img{width:100%;height:100%;object-fit:contain;display:block}
+.cam .off{color:#c9ced8;text-align:center;padding:24px;font-size:14px;max-width:520px}
+.cam.idle{aspect-ratio:auto;background:var(--chip)}
+.cam.idle .off{color:var(--muted);padding:14px}
+.specs{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
+.spec h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 6px}
+.kv{display:flex;justify-content:space-between;gap:10px;font-size:14px;padding:2px 0}
+.kv>span:first-child{color:var(--muted);white-space:nowrap}
+.kv>b{font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+.swatch{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:baseline;border:1px solid var(--line)}
+.alert{font-size:13px;padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--warn) 14%,transparent);margin-top:4px}
+.alert a{color:inherit}
+@media (max-width:600px){header,main{padding-left:16px;padding-right:16px}.hide-sm{display:none}.qlist li{grid-template-columns:40px minmax(0,1fr)}.qbtns{grid-column:2;justify-content:flex-start}}
 </style>
 </head>
 <body>
@@ -58,22 +92,28 @@ td.slot{text-align:center;min-width:54px}
 <main>
   <section id="notices"></section>
   <section><h2>Printers</h2><div class="row" id="printers"></div></section>
+  <section><h2>Print queue <a href="plan" style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--accent);text-decoration:none;margin-left:8px">Build planner →</a></h2>
+    <div id="plan-banner"></div><div class="row" id="queues"></div><div id="queue-extra"></div></section>
   <section>
     <h2>TMTs <span style="text-transform:none;letter-spacing:0">· planned <button class="small" onclick="setTarget(-1)">−</button> <b id="target">1</b> <button class="small" onclick="setTarget(1)">+</button></span></h2>
     <div class="row" id="builds"></div>
   </section>
-  <section><h2>Parts</h2><table id="parts"></table></section>
-  <section><h2>Recent prints</h2><table class="small-text" id="hist"></table></section>
+  <section><h2>Parts</h2><div class="scroll"><table id="parts"></table></div></section>
+  <section><h2>Recent prints</h2><div class="scroll"><table class="small-text" id="hist"></table></div></section>
   <section>
     <h2>Files</h2>
     <div class="card" style="margin-bottom:10px">
       <div id="profile" class="muted"></div>
       <div style="margin-top:8px"><input type="file" id="upload" accept=".3mf" multiple> <button class="primary" onclick="upload()">Upload 3MF files</button> <button onclick="rescan()">Rescan</button> <span id="upmsg" class="muted"></span></div>
     </div>
-    <table class="small-text" id="files"></table>
+    <div class="scroll"><table class="small-text" id="files"></table></div>
   </section>
 </main>
 <div class="toast" id="toast"></div>
+<dialog class="pop" id="pop">
+  <div class="pop-head"><span class="name" id="pop-name"></span><span id="pop-status"></span><button onclick="$('pop').close()">Close</button></div>
+  <div class="pop-body"><div class="cam" id="pop-cam"></div><div class="specs" id="pop-specs"></div></div>
+</dialog>
 <script>
 const ACTIVE=['prepare','running','pause','slicing','init'];
 let D=null;
@@ -131,7 +171,7 @@ function render(){
   $('target').textContent=D.state.target;
   const sm=D.summary;
   $('sub').textContent=`${D.profile||'no profile'} · ${sm.assembled||0} assembled · ${sm.complete_in_pool||0} ready in printed parts`;
-  renderNotices(); renderPrinters(); renderBuilds(); renderParts(); renderHist(); renderFiles();
+  renderNotices(); renderPrinters(); renderQueues(); renderBuilds(); renderParts(); renderHist(); renderFiles();
 }
 
 function renderNotices(){
@@ -159,9 +199,13 @@ function renderPrinters(){
       what=s?`<div>${esc(srcLabel(s))}</div>${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
         :`<div>${esc(L.task_name||cur.task||'')} · plate ${esc(cur.plate??'?')}</div><div><span class="tag warn">not recognised</span> ${assignSelect(`assignPrinter('${p.key}',this.value)`)}</div>`;
     } else what='<div class="muted">idle</div>';
+    const bed=((D.state.bed||{})[p.key]||{}).state, q=(D.state.queue||{})[p.key]||[], ns=q.length&&srcById(q[0].source);
+    if(bed==='needs_clearing'&&!active) what+=`<div style="margin-top:6px"><span class="tag warn">plate needs clearing</span> <button class="small primary" onclick="bedClear('${p.key}')">Plate is clear</button></div>`;
+    else if(bed==='clear'&&!active) what+='<div style="margin-top:6px"><span class="tag ok">plate clear</span></div>';
+    if(ns) what+=`<div class="muted" style="margin-top:4px">Next: ${esc((ns.plate_name||ns.title)+' · plate '+ns.plate)}</div>`;
     const tag=status==='finish'?'ok':status==='failed'?'bad':active?'now':'';
-    return `<div class="card printer"><img src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
-      <div><div class="name">${esc(p.name)} <span class="tag ${tag}">${esc(status)}</span></div>${what}
+    return `<div class="card printer" title="Camera and details" onclick="if(!event.target.closest('select,button'))openPrinter('${p.key}')"><img src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
+      <div><div class="name">${esc(p.name)} <span class="tag ${tag}">${esc(status)}</span><span class="more">details ›</span></div>${what}
       ${active?`<div class="bar"><i style="width:${prog}%"></i></div><div class="muted">${prog}%${isFinite(rem)?' · '+(rem>=1?rem.toFixed(1)+' h':Math.round(rem*60)+' min')+' left':''} · layer ${esc(L.current_layer||'?')}/${esc(L.total_layer_count||'?')}</div>`:''}
       </div></div>`;
   }).join(''));
@@ -228,6 +272,229 @@ function renderFiles(){
     <td><button class="small" onclick="delFile('${esc(x.file).replace(/'/g,"\\'")}')">remove</button></td></tr>`).join(''):'<tr><td class="muted">No 3MF files yet.</td></tr>');
 }
 
+// ------------------------------------------------------------------ print queue
+// One card per printer: its plates in order (the first is next), the filament it can print (what's loaded, or set
+// here by clicking), and on/off. Plates are planned from what the planned TMTs still need, or come from a plan.
+const hrs=h=>h>=1?h.toFixed(1)+' h':Math.round(h*60)+' min';
+function renderQueues(){
+  const st=D.state, Q=st.queue||{}, cfg=st.queue_cfg||{}, srcs=Object.fromEntries(cat().sources.map(s=>[s.id,s]));
+  const matOf=pid=>((cat().parts.find(p=>p.id===pid)||{}).material||'').toUpperCase();
+  const mats=[...new Set(cat().parts.map(p=>(p.material||'').toUpperCase()).filter(Boolean))];
+  const pm=s=>[...new Set(Object.keys(s.yields).map(matOf).filter(Boolean))];
+  const label=s=>s.plate_name||s.title;
+  const pname=k=>(D.printers.find(p=>p.key===k)||{name:k}).name;
+  // Print time on this printer, from its own prints only: printed before, the print running now, or the mirror twin.
+  const timeOf=(pk,sid)=>((st.plate_times||{})[pk]||{})[sid];
+  const timeTag=(pk,sid)=>{const t=timeOf(pk,sid); if(!t) return `<span class="muted" title="Not printed on ${esc(pname(pk))} yet">· no time yet</span>`;
+    const noz=(t.nozzle||[]).map(n=>`${n.side||''} ${n.size}`.trim()).join(' + ');
+    const why=t.basis==='printed'?`Printed on ${pname(pk)} in ${hrs(t.h)}${t.n>1?` (median of ${t.n})`:''}`
+      :t.basis==='estimate'?`Printing on ${pname(pk)} now; slicer estimate ${hrs(t.est_h)}`:`From its mirror twin ${t.twin} on ${pname(pk)}`;
+    return `<span title="${esc(why+(t.filament?' · '+t.filament:'')+(noz?' · nozzle '+noz:''))}">· ${t.basis==='printed'?'':'≈'}${hrs(t.h)}</span>`;};
+  const addOpts=cat().sources.filter(s=>s.counts).map(s=>`<option value="${esc(s.id)}">${esc(label(s)+' · plate '+s.plate)}</option>`).join('');
+  if(!D.printers.length){setHTML('queues','');return;}
+  setHTML('queues',D.printers.map(p=>{
+    const q=Q[p.key]||[], c=cfg[p.key]||{}, on=c.on!==false;
+    const have=c.materials!=null?c.materials:((st.printers||{})[p.key]||{}).materials||[];
+    const others=D.printers.filter(o=>o.key!==p.key);
+    const known=q.map(e=>timeOf(p.key,e.source)).filter(Boolean), total=known.reduce((a,t)=>a+t.h,0), untimed=q.length-known.length;
+    const chips=mats.map(m=>{const y=have.some(h=>h.startsWith(m));
+      return `<span class="tag chip ${y?'ok':'off'}" title="${y?'Prints':"Doesn't print"} ${esc(m)}${c.materials!=null?' (set by you)':' (loaded)'}; click to change" onclick="toggleMat('${p.key}','${esc(m)}')">${esc(m)}</span>`;}).join('');
+    const items=q.map((e,i)=>{const s=srcs[e.source]; if(!s) return '';
+      const div=e.setup&&(i===0||q[i-1].setup!==e.setup)?`<li class="div">${esc(e.setup)}${e.nozzle?` · ${e.nozzle} nozzle`:''}</li>`:'';
+      const when=e.plan_start?` · <span title="Planned start">start ≈ ${esc(doneAt(e.plan_start))}</span>`:'';
+      const tags=(i===0?'<span class="tag now">next</span>':'')+(e.retry?'<span class="tag warn">retry</span>':'')+(!e.auto?'<span class="tag">added by you</span>':'')+(e.pinned&&!e.planned?'<span class="tag">moved here</span>':'');
+      return `${div}<li class="${i===0?'first':''}"><img src="${s.thumb?'thumbs/'+esc(s.thumb):''}" alt="" onerror="this.style.visibility='hidden'">
+        <div><div><b>${esc(label(s))}</b></div><div class="muted" style="font-size:13px">plate ${esc(s.plate)} · ${esc(pm(s).join(', '))} ${timeTag(p.key,e.source)}${when} ${tags}</div></div>
+        <span class="qbtns"><button class="small" title="Earlier" onclick="qMove('${e.id}',-1)"${i===0?' disabled':''}>↑</button><button class="small" title="Later" onclick="qMove('${e.id}',1)"${i===q.length-1?' disabled':''}>↓</button>${
+        others.map(o=>`<button class="small" title="Move to ${esc(o.name)}" onclick="qSend('${e.id}','${o.key}')">→ ${esc(o.name)}</button>`).join('')}<button class="small" title="${e.auto?'Skip this plate':'Remove'}" onclick="qRemove('${e.id}',${!!e.auto})">✕</button></span></li>`;}).join('');
+    return `<div class="card"><div class="qhead"><b>${esc(p.name)}</b><span class="muted">${q.length} plate${q.length===1?'':'s'}${known.length?` · ${hrs(total)}${untimed?` + ${untimed} not timed`:''}`:''}</span>
+      <span style="margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap">${chips}${c.materials!=null?`<button class="small" title="Follow the loaded filament again" onclick="matAuto('${p.key}')">auto</button>`:''}
+      <label class="muted" style="font-size:13px;white-space:nowrap"><input type="checkbox"${on?' checked':''} onchange="qOn('${p.key}',this.checked)"> on</label></span></div>
+      ${on?(items?`<ol class="qlist">${items}</ol>`:'<div class="muted">Nothing queued.</div>'):'<div class="muted">Queue off: this printer gets no plates.</div>'}
+      <div style="margin-top:8px"><select onchange="qAdd('${p.key}',this.value);this.value=''"><option value="">+ add a plate…</option>${addOpts}</select></div></div>`;
+  }).join(''));
+  const pl=st.plan, ps=(pl&&pl.summary)||{};
+  setHTML('plan-banner',(pl?`<div class="card" style="margin-bottom:12px">Following the plan made ${esc(doneAt(pl.applied))}${ps.done?`, build done ≈ <b>${esc(doneAt(ps.done))}</b>`:''}.
+    <a href="plan" style="color:var(--accent)">see it</a></div>`:'')+(D.alerts?'':'<div class="muted" style="margin:-4px 0 10px;font-size:13px">Phone alerts are off: list your notify services under <b>notify</b> in the add-on options to get "print done, next plate" alerts with a Plate is clear button.</div>'));
+  const un=(st.queue_unassigned||[]).map(id=>srcs[id]).filter(Boolean), sk=(st.queue_skip||[]).map(id=>srcs[id]).filter(Boolean);
+  setHTML('queue-extra',(un.length?`<div class="card notice" style="margin-top:10px"><b>Waiting for a printer with the right filament:</b> ${un.map(s=>esc(label(s)+' ('+pm(s).join(', ')+')')).join(', ')}</div>`:'')
+    +(sk.length?`<div class="muted" style="margin-top:10px">Skipped: ${sk.map(s=>`${esc(label(s))} <button class="small" onclick="qRestore('${esc(s.id)}')">restore</button>`).join(' ')}</div>`:''));
+}
+async function bedClear(p){const r=await act('bed_clear',{printer:p}); if(r.ok) toast(r.next?`Plate is clear. Next: ${r.next}`:'Plate is clear');}
+async function qMove(entry,dir){await act('queue_move',{entry,dir});}
+async function qSend(entry,to){await act('queue_send',{entry,to});}
+async function qRemove(entry,auto){if(!auto||confirm("Skip this plate? It won't be queued again until you restore it (below the queues).")) await act('queue_remove',{entry});}
+async function qRestore(source){await act('queue_restore',{source});}
+async function qAdd(printer,source){if(source) await act('queue_add',{printer,source});}
+async function qOn(printer,on){await act('queue_cfg',{printer,on});}
+async function toggleMat(printer,m){
+  const c=(D.state.queue_cfg||{})[printer]||{};
+  let have=c.materials!=null?[...c.materials]:[...(((D.state.printers||{})[printer]||{}).materials||[])];
+  have=have.some(h=>h.startsWith(m))?have.filter(h=>!h.startsWith(m)):[...have,m];
+  await act('queue_cfg',{printer,materials:have});
+}
+async function matAuto(printer){await act('queue_cfg',{printer,materials:null});}
+
+// ------------------------------------------------------------------ printer details pop-up
+// Everything Home Assistant knows about the printer (refreshed every 2 s while open) and its camera.
+let popKey=null, popTimer=null, live={}, attrs={}, cam=null, camFor=null;
+const E=(k,s,dom='sensor')=>`${dom}.${k}_${s}`;
+const V=(k,s,dom='sensor')=>live[E(k,s,dom)];
+const ok=v=>v!=null&&v!==''&&!['unknown','unavailable'].includes(v);
+const human=v=>ok(v)?String(v).replace(/_/g,' ').replace(/^./,c=>c.toUpperCase()):'';
+const kv=(label,html)=>html?`<div class="kv"><span>${esc(label)}</span><b>${html}</b></div>`:'';
+const swatch=c=>/^#[0-9a-f]{3,8}$/i.test(c||'')?`<span class="swatch" style="background:${c}"></span>`:'';
+function temp(k,cur,target,showOff=true){
+  const c=parseFloat(V(k,cur)), t=parseFloat(V(k,target)); if(!isFinite(c)) return '';
+  const u=esc((attrs[E(k,cur)]||{}).unit_of_measurement||'°C');
+  return t>0?`${Math.round(c)} / ${Math.round(t)} ${u}`:`${Math.round(c)} ${u}${showOff?' <span class="muted">off</span>':''}`;
+}
+const fan=(k,s)=>ok(V(k,s))?esc(V(k,s))+'%':'';
+async function openPrinter(key){popKey=key; camFor=null; live={}; attrs={}; await refreshPop(); if(!$('pop').open) $('pop').showModal(); clearInterval(popTimer); popTimer=setInterval(refreshPop,2000);}
+async function refreshPop(){
+  if(!popKey) return;
+  try{const r=await (await fetch('api/printer/'+encodeURIComponent(popKey),{cache:'no-store'})).json(); live=r.states||{}; attrs=r.attrs||{};}catch(e){}
+  renderPop(); camSync();
+}
+function renderPop(){
+  const k=popKey; if(!k||!D) return;
+  const p=D.printers.find(x=>x.key===k)||{name:k}, cur=(D.state.printers||{})[k]||{};
+  const status=V(k,'print_status')||cur.status||'unknown', active=ACTIVE.includes(status);
+  $('pop-name').textContent=p.name;
+  const tag=status==='finish'?'ok':status==='failed'?'bad':active?'now':'';
+  setHTML('pop-status',`<span class="tag ${tag}">${esc(status)}</span> <span class="muted">${esc(active?human(V(k,'current_stage')):'')}</span>`);
+  const s=srcById(cur.source), out=[];
+  const card=(title,body,wide)=>body?`<div class="spec card"${wide?' style="grid-column:1/-1"':''}><h3>${esc(title)}</h3>${body}</div>`:'';
+  const hms=attrs[E(k,'hms_errors','binary_sensor')]||{}, al=[];
+  for(let i=1;i<=(parseInt(hms.Count)||0);i++){
+    const wiki=hms[`${i}-Wiki`], sev=hms[`${i}-Severity`];
+    al.push(`<div class="alert">${sev?`<b>${esc(human(sev))}:</b> `:''}${esc(hms[`${i}-Error`]||hms[`${i}-Code`]||'')}${/^https:\/\//.test(wiki||'')?` <a href="${esc(wiki)}" target="_blank" rel="noopener">more</a>`:''}</div>`);
+  }
+  if(V(k,'print_error','binary_sensor')==='on') al.push('<div class="alert"><b>Print error</b> reported by the printer.</div>');
+  out.push(card('Alerts',al.join(''),true));
+  const prog=parseFloat(V(k,'print_progress')), rem=parseFloat(V(k,'remaining_time'));
+  const start=ok(V(k,'start_time'))?new Date(V(k,'start_time')):null;
+  const job=active||status==='finish'||status==='failed';
+  out.push(card('Print',job?[
+    kv('Plate',esc(s?(s.plate_name||'plate '+s.plate):(V(k,'task_name')||cur.task||''))),
+    kv('Progress',isFinite(prog)?`${prog}% · layer ${esc(V(k,'current_layer')||'?')}/${esc(V(k,'total_layer_count')||'?')}`:''),
+    kv('Time left',active&&isFinite(rem)?hrs(rem):''),
+    kv(status==='finish'?'Finished':'Done at',esc(doneAt(V(k,'end_time'),V(k,'remaining_time')))),
+    kv('Started',start&&!isNaN(start)?esc(doneAt(start.toISOString())):''),
+    kv('Speed',esc(human(V(k,'speed_profile')))),
+    kv('Filament',ok(V(k,'print_weight'))?`${esc(Math.round(parseFloat(V(k,'print_weight'))))} g${ok(V(k,'print_length'))?' · '+esc(V(k,'print_length'))+' m':''}`:''),
+    kv('Build plate',esc(human(V(k,'print_bed_type')))),
+  ].join(''):'<div class="muted">idle</div>'));
+  const dual=ok(V(k,'left_nozzle_temperature'));
+  out.push(card('Temperatures',[
+    dual?kv('Left nozzle',temp(k,'left_nozzle_temperature','left_nozzle_target_temperature')):kv('Nozzle',temp(k,'nozzle_temperature','nozzle_target_temperature')),
+    dual?kv('Right nozzle',temp(k,'right_nozzle_temperature','right_nozzle_target_temperature')):'',
+    kv('Bed',temp(k,'bed_temperature','bed_target_temperature')),
+    kv('Chamber',temp(k,'chamber_temperature','chamber_target_temperature',false)),
+  ].join('')));
+  out.push(card('Fans',[kv('Part cooling',fan(k,'cooling_fan_speed')),kv('Aux',fan(k,'aux_fan_speed')),kv('Aux 2',fan(k,'secondary_aux_fan_speed')),
+    kv('Chamber',fan(k,'chamber_fan_speed')),kv('Heatbreak',fan(k,'heatbreak_fan_speed')),kv('Air duct',esc(human(V(k,'airduct_mode'))))].join('')));
+  const act_=attrs[E(k,'active_tray')]||{}, fil=[];
+  if(ok(V(k,'active_tray'))) fil.push(kv('Printing with',swatch(act_.color)+esc(V(k,'active_tray'))));
+  const re=new RegExp(`^sensor\\.${k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}_(ams_\\d+|amsht)_humidity$`);
+  const units=Object.keys(live).map(id=>(id.match(re)||[])[1]).filter(Boolean).sort();
+  for(const u of units){
+    const dry=V(k,u+'_drying','binary_sensor')==='on', left=parseFloat(V(k,u+'_remaining_drying_time'));
+    const label=u==='amsht'?'AMS HT':'AMS '+u.split('_')[1];
+    const trays=Object.keys(live).filter(id=>id.startsWith(`sensor.${k}_${u}_tray_`)).sort()
+      .map(id=>({name:live[id],a:attrs[id]||{}})).filter(t=>ok(t.name)&&t.name!=='Empty'&&!t.a.empty);
+    const same=[];
+    for(const t of trays){const g=same.find(x=>x.name===t.name&&x.a.color===t.a.color); if(g){g.n++; g.active=g.active||t.a.active;} else same.push({...t,n:1,active:t.a.active});}
+    fil.push(kv(label,`${esc(V(k,u+'_humidity'))}% · ${esc(Math.round(parseFloat(V(k,u+'_temperature'))))}°C${dry?` · drying${isFinite(left)&&left>0?', '+hrs(left)+' left':''}`:''}`));
+    if(same.length) fil.push(`<div class="muted" style="font-size:13px;margin:0 0 4px">${same.map(t=>`${swatch(t.a.color)}${t.active?'<b>':''}${t.n>1?t.n+' × ':''}${esc(t.name)}${t.active?'</b>':''}`).join(' · ')}</div>`);
+  }
+  for(const [n,lab] of [['externalspool','External'],['externalspool2','External 2']]){
+    const id=E(k,n+'_external_spool'), a=attrs[id]||{};
+    if(ok(live[id])&&live[id]!=='?'&&!a.empty) fil.push(kv(lab,swatch(a.color)+esc(live[id])));
+  }
+  out.push(card('Filament',fil.join('')));
+  const nz=side=>ok(V(k,side+'nozzle_size'))?`${esc(V(k,side+'nozzle_size'))} mm ${esc(human(V(k,side+'nozzle_type')).toLowerCase())}`:'';
+  const door=V(k,'door','binary_sensor'), light=V(k,'chamber_light','light');
+  out.push(card('Printer',[dual?kv('Left nozzle',nz('left_')):kv('Nozzle',nz('')),dual?kv('Right nozzle',nz('right_')):'',
+    kv('Door',ok(door)?(door==='on'?'open':'closed'):''),kv('Chamber light',ok(light)?esc(light):''),
+    kv('Online',V(k,'online','binary_sensor')==='on'?'yes':V(k,'online','binary_sensor')==='off'?'<span style="color:var(--bad)">no</span>':''),
+    kv('Wi-Fi',ok(V(k,'wi_fi_signal'))?esc(V(k,'wi_fi_signal'))+' dBm':''),kv('Hours printed',ok(V(k,'total_usage'))?esc(V(k,'total_usage'))+' h':'')].join('')));
+  setHTML('pop-specs',out.join(''));
+}
+
+// Camera: live video through Home Assistant's camera entity (WebRTC via its go2rtc, signalled through this add-on),
+// else HLS where the browser plays it natively, else a still every 2 s. Bambu printers only stream when
+// "LAN Only Liveview" is on in their network settings.
+function camSync(){
+  const p=D.printers.find(x=>x.key===popKey)||{}, id=p.camera, on=!!id&&ok(live[id]), key=popKey+':'+id+':'+on;
+  if(camFor===key) return; camFor=key; camStop();
+  $('pop-cam').classList.toggle('idle',!on);
+  if(on) return camStart(popKey);
+  $('pop-cam').innerHTML=`<div class="off">${!id?'This printer has no camera in Home Assistant.'
+    :'Live view is off on this printer.<br>Turn on <b>LAN Only Liveview</b> in the printer\'s network settings (on its screen) and the camera shows up here.'}</div>`;
+}
+function mkVideo(){const v=document.createElement('video'); v.autoplay=true; v.muted=true; v.playsInline=true; return v;}
+function camStop(me=cam){
+  if(!me) return; if(cam===me) cam=null;
+  clearTimeout(me.timer); clearInterval(me.ping); if(me.pc) me.pc.close();
+  if(me.session) fetch(`api/camera/session/${me.session}/close`,{method:'POST'}).catch(()=>{});
+  if(me.video){const so=me.video.srcObject; if(so) so.getTracks().forEach(t=>t.stop()); me.video.srcObject=null; me.video.removeAttribute('src'); me.video.load();}
+  if(me.url) URL.revokeObjectURL(me.url);
+}
+async function camStart(key){
+  const box=$('pop-cam'), me={key}; cam=me;
+  box.innerHTML='<div class="off">Connecting to the camera…</div>';
+  try{await camWebRTC(me,box); return;}catch(e){console.warn('camera: WebRTC failed:',e.message);}
+  if(cam!==me) return;
+  if(me.pc){me.pc.close(); me.pc=null;}
+  if(mkVideo().canPlayType('application/vnd.apple.mpegurl')){
+    try{const r=await (await fetch(`api/camera/${encodeURIComponent(key)}/hls`,{method:'POST'})).json();
+      if(cam===me&&r.ok&&r.url){hlsOrStills(me,box,r.url); return;}}catch(e){}
+  }
+  if(cam===me) camStills(me,box);
+}
+async function camWebRTC(me,box){
+  const cfg=await (await fetch(`api/camera/${encodeURIComponent(me.key)}/config`)).json();
+  if(!cfg.ok) throw new Error(cfg.error||'no WebRTC for this camera');
+  const pc=me.pc=new RTCPeerConnection(cfg.configuration||{});
+  if(cfg.dataChannel) pc.createDataChannel(cfg.dataChannel);
+  pc.addTransceiver('video',{direction:'recvonly'}); pc.addTransceiver('audio',{direction:'recvonly'});
+  const v=me.video=mkVideo(), ms=new MediaStream(); v.srcObject=ms;
+  let gotVideo; const video=new Promise(r=>gotVideo=r);
+  pc.ontrack=e=>{ms.addTrack(e.track); if(e.track.kind==='video') gotVideo();};
+  await pc.setLocalDescription(await pc.createOffer());
+  // Send the offer with this side's candidates already in it, so none have to be trickled afterwards.
+  await new Promise(r=>{if(pc.iceGatheringState==='complete') return r(); pc.addEventListener('icegatheringstatechange',()=>{if(pc.iceGatheringState==='complete') r();}); setTimeout(r,2000);});
+  if(cam!==me) return;
+  const r=await (await fetch(`api/camera/${encodeURIComponent(me.key)}/offer`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({offer:pc.localDescription.sdp})})).json();
+  if(!r.ok) throw new Error(r.error||'no answer');
+  me.session=r.session;
+  const addCand=async c=>{try{await pc.addIceCandidate(typeof c==='string'?{candidate:c,sdpMLineIndex:0}:c);}catch(e){}};
+  await pc.setRemoteDescription({type:'answer',sdp:r.answer});
+  for(const c of r.candidates||[]) addCand(c);
+  // Keep the session open while the pop-up is (the add-on closes it a minute after the pings stop).
+  me.ping=setInterval(async()=>{try{const p=await (await fetch(`api/camera/session/${me.session}/ping`,{method:'POST'})).json(); for(const c of p.candidates||[]) addCand(c);}catch(e){}},15000);
+  await Promise.race([video,new Promise((_,no)=>setTimeout(()=>no(new Error('no video')),15000))]);
+  if(cam!==me) return;
+  box.replaceChildren(v); v.play().catch(()=>{});
+}
+// HLS that never shows a picture (a browser that says it can play HLS but doesn't): fall back to stills.
+function hlsOrStills(me,box,url){
+  const v=me.video=mkVideo(); v.src=url; box.replaceChildren(v); v.play().catch(()=>{});
+  const fallback=()=>{if(cam!==me||v.videoWidth) return; clearTimeout(me.timer); v.removeAttribute('src'); v.load(); me.video=null; camStills(me,box);};
+  v.onerror=fallback; me.timer=setTimeout(fallback,15000);
+}
+function camStills(me,box){
+  const img=new Image(); img.alt=''; box.replaceChildren(img);
+  const tick=async()=>{
+    if(cam!==me) return;
+    try{const r=await fetch(`api/camera/${encodeURIComponent(me.key)}/still?t=${Date.now()}`);
+      if(r.ok&&cam===me){const u=URL.createObjectURL(await r.blob()), old=me.url; me.url=u; img.src=u; if(old) setTimeout(()=>URL.revokeObjectURL(old),1000);}}catch(e){}
+    if(cam===me) me.timer=setTimeout(tick,2000);
+  };
+  tick();
+}
+
 async function adjust(part,delta){const r=await act('adjust',{part,delta}); if(r.ok) toast(`${(cat().parts.find(p=>p.id===part)||{}).name}: ${r.count}`);}
 async function setTarget(d){await act('target',{count:Math.max(1,(D.state.target||1)+d)});}
 async function assembled(n){if(confirm(`Mark TMT #${n} as assembled? Its parts come out of the printed pool.`)){const r=await act('assembled'); if(r.ok) toast(`TMT #${n} assembled`);}}
@@ -246,6 +513,8 @@ async function upload(){
   await load();
 }
 
+$('pop').addEventListener('click',e=>{if(e.target===$('pop')) $('pop').close();});   // click outside the box closes it
+$('pop').addEventListener('close',()=>{camStop(); popKey=null; camFor=null; clearInterval(popTimer);});
 load(); setInterval(load,3000);
 </script>
 </body>

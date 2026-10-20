@@ -23,6 +23,8 @@ files:
 
 # Plates that count toward a TMT. Any other plate of these files (or of any other 3MF you upload) is still
 # recognised when printed, but logged as "not a TMT plate".
+# printer_models limits a plate to printers whose Home Assistant device model starts with one of these (the print
+# queue and planner keep it there).
 plates:
   - {file: all_parts, plates: [1, 2, 3, 4, 5, 6, 7, 8], group: Frame}      # handles, wheel mounts, wings, storage
   - {file: all_parts, plates: [10], group: Frame}                           # rear caster mounts, kit version (9 = McMaster)
@@ -32,7 +34,7 @@ plates:
   - {file: all_parts, plates: [15], group: Connectors}
   - {file: all_parts, plates: [16], group: Wheels}                          # wheel rim Rev B, one per plate
   - {file: tires, plates: [1, 2], group: Wheels, material: TPU}
-  - {file: single_handle, plates: [1], group: Push handle}
+  - {file: single_handle, plates: [1], group: Push handle, printer_models: [H2]}   # needs an H2 printer's bed
   - {file: grip_v2, plates: [1], group: Push handle, material: TPU}
   - {file: all_parts, plates: [20], group: Buckles & slides}
   - {file: harness, plates: [1, 2, 3, 4], group: Harness & straps, material: TPU}
