@@ -15,7 +15,7 @@ from ha import HomeAssistant
 from printers import Printer
 from tracker import Tracker
 
-VERSION = "0.2.5"
+VERSION = "0.2.6"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
@@ -126,7 +126,7 @@ class App:
             "profile": self.catalog.get("profile"), "profile_path": str(self.profile_path), "profile_error": self.profile_error,
             "catalog": {k: self.catalog.get(k) for k in ("parts", "alternatives", "sources", "files", "missing")},
             "state": {k: st.get(k) for k in ("target", "assembled", "counts", "printers", "log", "updated", "projects",
-                                             "printer_project")},
+                                             "printer_project", "custom")},
             "summary": self.tracker.summary(), "projects": self.tracker.project_summaries(), "printers": self.live()})
 
     async def h_action(self, request):
@@ -137,7 +137,7 @@ class App:
               "import_counts": self.tracker.import_counts, "project_add": self.tracker.project_add,
               "project_update": self.tracker.project_update, "project_delete": self.tracker.project_delete,
               "printer_project": self.tracker.printer_project, "move_print": self.tracker.move_print,
-              "fill_from_pool": self.tracker.fill_from_pool}.get(cmd)
+              "fill_from_pool": self.tracker.fill_from_pool, "assign_custom": self.tracker.assign_custom}.get(cmd)
         if not fn:
             return web.json_response({"ok": False, "error": f"unknown command {cmd!r}"}, status=400)
         try:

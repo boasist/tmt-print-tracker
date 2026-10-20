@@ -104,6 +104,15 @@ input[type=number]{width:64px}
 </main>
 <div class="toast" id="toast"></div>
 <div id="printview"></div>
+<dialog id="custom" class="card" style="max-width:480px;width:calc(100% - 32px);color:var(--ink)">
+  <b>Custom plate</b> <span class="muted">which parts, and how many</span>
+  <div id="cp-rows" style="margin-top:8px"></div>
+  <div style="margin-top:10px;display:flex;gap:6px;justify-content:flex-end">
+    <button class="small" onclick="addCustomRow()">+ another part</button>
+    <button class="small" onclick="$('custom').close()">cancel</button>
+    <button class="small primary" onclick="saveCustom()">count these</button>
+  </div>
+</dialog>
 <script>
 const ACTIVE=['prepare','running','pause','slicing','init'];
 let D=null;
@@ -128,8 +137,8 @@ async function post(path,body){
 const act=(cmd,data={})=>post('api/action',{cmd,...data});
 
 const cat=()=>D.catalog;
-const srcById=id=>cat().sources.find(s=>s.id===id);
-const srcLabel=s=>s?(s.plate_name?s.plate_name+' · ':'')+(s.title||s.file)+' · plate '+s.plate:'';
+const srcById=id=>cat().sources.find(s=>s.id===id)||(D.state.custom||{})[id];
+const srcLabel=s=>s&&s.title==='custom plate'?'Custom plate: '+s.plate_name:s?(s.plate_name?s.plate_name+' · ':'')+(s.title||s.file)+' · plate '+s.plate:'';
 const covered=(count,qty,k)=>Math.max(0,Math.min(qty,count-(k-1)*qty));
 
 function nowPrinting(){
@@ -175,7 +184,7 @@ function renderNotices(){
 
 function assignSelect(onchange){
   const opts=cat().sources.map(s=>`<option value="${esc(s.id)}">${esc((s.counts?'':'(not counted) ')+srcLabel(s))}</option>`).join('');
-  return `<select onchange="${onchange}"><option value="">which plate is this?</option>${opts}</select>`;
+  return `<select onchange="${onchange}"><option value="">which plate is this?</option><option value="__custom">custom plate: pick the parts…</option>${opts}</select>`;
 }
 
 function renderPrinters(){
@@ -340,8 +349,21 @@ async function adjust(part,delta,project){const r=await act('adjust',{part,delta
 async function setTarget(d){await act('target',{count:Math.max(1,(D.state.target||1)+d)});}
 async function assembled(n){if(confirm(`Mark TMT #${n} as assembled? Its parts come out of the printed pool.`)){const r=await act('assembled'); if(r.ok) toast(`TMT #${n} assembled`);}}
 async function undo(id){if(confirm('Take this print back out of the counts?')) await act('undo',{log_id:id});}
-async function assignLog(id,source){if(source){const r=await act('assign',{log_id:id,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
-async function assignPrinter(printer,source){if(source){const r=await act('assign',{printer,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
+// A modified plate: pick parts and how many in a small dialog, then count them (and remember it for this job).
+function customPlate(target){
+  const d=$('custom'); d._target=target; $('cp-rows').innerHTML=''; addCustomRow(); d.showModal();
+}
+function addCustomRow(){
+  const opts=cat().parts.map(p=>`<option value="${esc(p.id)}">${esc((p.code?p.code+' ':'')+p.name)}</option>`).join('');
+  $('cp-rows').insertAdjacentHTML('beforeend',`<div style="display:flex;gap:6px;margin:4px 0"><input type="number" min="1" value="1"><select style="flex:1;min-width:0">${opts}</select></div>`);
+}
+async function saveCustom(){
+  const y={}; document.querySelectorAll('#cp-rows div').forEach(r=>{const n=+r.querySelector('input').value, pid=r.querySelector('select').value; if(n>0) y[pid]=(y[pid]||0)+n;});
+  const t=$('custom')._target; $('custom').close();
+  const r=await act('assign_custom',{yields:y,...t}); if(r.ok) toast('Counted, and remembered for this job');
+}
+async function assignLog(id,source){if(source==='__custom') return customPlate({log_id:id}); if(source){const r=await act('assign',{log_id:id,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
+async function assignPrinter(printer,source){if(source==='__custom') return customPlate({printer}); if(source){const r=await act('assign',{printer,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
 async function rescan(){await post('api/rescan');toast('Files rescanned');}
 async function delFile(file){if(confirm(`Remove ${file}? Counts are kept.`)) await post('api/delete_file',{file});}
 async function upload(){

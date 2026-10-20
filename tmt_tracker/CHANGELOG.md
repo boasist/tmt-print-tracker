@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.6
+
+- **Custom plate** under "which plate is this?": for a modified plate that isn't in any file, pick the parts and how
+  many (4 tires, say). It counts like a plate and is remembered for reprints of the same job.
+
 ## 0.2.5
 
 - Printers show the name you give the device in Home Assistant, else the device's own name (0.2.4 showed bare serial

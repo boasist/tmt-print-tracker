@@ -45,6 +45,7 @@ class Tracker:
         self.st.setdefault("projects", [])
         self.st.setdefault("printer_project", {})     # printer -> project id it prints for
         self.st.setdefault("next_project", 1)
+        self.st.setdefault("custom", {})              # custom plates: {id: source}, e.g. a modified plate of 4 tires
 
     # ------------------------------------------------------------ plumbing
     def set_catalog(self, catalog):
@@ -59,7 +60,7 @@ class Tracker:
 
     @property
     def sources(self):
-        return {s["id"]: s for s in self.catalog["sources"]}
+        return {**{s["id"]: s for s in self.catalog["sources"]}, **self.st["custom"]}
 
     def _log(self, **entry):
         entry = {"id": self.st["next_log"], "time": now(), **entry}
@@ -244,6 +245,18 @@ class Tracker:
             self.st["aliases"][f"{task}|{plate}"] = src["id"]
         self.save()
         return {"assigned": src["id"]}
+
+    def assign_custom(self, yields, log_id=None, printer=None):
+        """A plate that isn't in any file (a modified plate): count the parts given, and remember it for this job."""
+        yields = {pid: int(n) for pid, n in (yields or {}).items() if int(n) > 0}
+        if not yields:
+            raise ValueError("pick at least one part")
+        names = {p["id"]: p["name"] for p in self.catalog["parts"]}
+        label = ", ".join(f"{n} × {names.get(pid, pid)}" for pid, n in yields.items())
+        sid = "custom:" + ",".join(f"{pid}={n}" for pid, n in sorted(yields.items()))
+        self.st["custom"][sid] = {"id": sid, "file": "", "title": "custom plate", "plate": None, "plate_name": label,
+                                  "counts": True, "group": None, "yields": yields, "thumb": None, "names": []}
+        return self.assign(sid, log_id=log_id, printer=printer)
 
     def adjust(self, part, delta, project=None):
         counts = self._bucket(project)
