@@ -90,6 +90,10 @@ class HomeAssistant:
         (its current_print_state sensor), as [{name, prefix, type}]."""
         ents = await self.call(type="config/entity_registry/list")
         devs = {d["id"]: d for d in await self.call(type="config/device_registry/list")}
+        try:   # the Bambu Lab integration titles its entry with the name the printer has in the Bambu app
+            titles = {e["entry_id"]: e.get("title") for e in await self.call(type="config_entries/get")}
+        except Exception:
+            titles = {}
         kinds = {"bambu_lab": ("bambu", "_print_status"), "moonraker": ("moonraker", "_current_print_state")}
         found = []
         for e in ents:
@@ -97,5 +101,7 @@ class HomeAssistant:
             if kind and eid.startswith("sensor.") and eid.endswith(kind[1]) and not e.get("disabled_by"):
                 d = devs.get(e.get("device_id")) or {}
                 prefix = eid[len("sensor."):-len(kind[1])]
-                found.append({"name": d.get("name_by_user") or d.get("name") or prefix, "prefix": prefix, "type": kind[0]})
+                entry_title = titles.get(e.get("config_entry_id")) if kind[0] == "bambu" else None
+                found.append({"name": d.get("name_by_user") or entry_title or d.get("name") or prefix, "prefix": prefix,
+                              "type": kind[0]})
         return sorted(found, key=lambda p: p["name"])

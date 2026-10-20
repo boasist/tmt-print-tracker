@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+- Bambu Lab printers show the name they have in the Bambu app (the integration entry's title) unless renamed in
+  Home Assistant.
+
 ## 0.2.3
 
 - Printer cards fit their content: long printer and job names are cut short (full text on hover), menus stay
