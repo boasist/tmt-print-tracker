@@ -22,6 +22,10 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .printer{display:grid;grid-template-columns:92px 1fr;gap:12px;align-items:start}
 .printer img{width:92px;height:92px;object-fit:contain;background:var(--chip);border-radius:8px}
 .printer .name{font-weight:600;font-size:16px}
+.printer>div{min-width:0}
+.printer select{width:100%;max-width:100%;text-overflow:ellipsis}
+.printer .clip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.printer .for{display:flex;gap:6px;align-items:center}.printer .for select{flex:1;min-width:0}
 .muted{color:var(--muted)}
 .bar{height:8px;background:var(--chip);border-radius:6px;overflow:hidden;margin:8px 0 4px}
 .bar>i{display:block;height:100%;background:var(--accent);border-radius:6px;transition:width .4s}
@@ -182,16 +186,16 @@ function renderPrinters(){
     const img=s&&s.thumb?'thumbs/'+s.thumb:`covers/${p.key}.png?t=${encodeURIComponent(D.state.updated||'')}`;
     let what;
     const notTmt=(D.state.printer_project||{})[p.key]==='-';
-    if(notTmt&&(active||status==='finish'||status==='failed')) what=`<div>${esc(L.task_name||cur.task||'')}</div><div class="muted">not for a TMT, not counted</div>`;
+    if(notTmt&&(active||status==='finish'||status==='failed')) what=`<div class="clip" title="${esc(L.task_name||cur.task||'')}">${esc(L.task_name||cur.task||'')}</div><div class="muted">not for a TMT, not counted</div>`;
     else if(active||status==='finish'||status==='failed'){
-      what=s?`<div>${esc(srcLabel(s))}</div>${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
-        :`<div>${esc(L.task_name||cur.task||'')} · plate ${esc(cur.plate??'?')}</div><div><span class="tag warn">not recognised</span> ${assignSelect(`assignPrinter('${p.key}',this.value)`)}</div>`;
+      what=s?`<div class="clip" title="${esc(srcLabel(s))}">${esc(s.plate_name||'plate '+s.plate)} <span class="muted">· plate ${esc(s.plate)}</span></div>${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
+        :`<div class="clip" title="${esc(L.task_name||cur.task||'')}">${esc(L.task_name||cur.task||'')}${cur.plate!=null?' · plate '+esc(cur.plate):''}</div><div><span class="tag warn">not recognised</span></div><div>${assignSelect(`assignPrinter('${p.key}',this.value)`)}</div>`;
     } else what='<div class="muted">idle</div>';
     const tag=status==='finish'?'ok':status==='failed'?'bad':active?'now':'';
     return `<div class="card printer"><img src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
-      <div><div class="name">${esc(p.name)} <span class="tag ${tag}">${esc(status)}</span></div>${what}
+      <div><div class="name clip" title="${esc(p.name)}">${esc(p.name)} <span class="tag ${tag}">${esc(status)}</span></div>${what}
       ${active?`<div class="bar"><i style="width:${prog}%"></i></div><div class="muted">${prog}%${isFinite(rem)?' · '+(rem>=1?rem.toFixed(1)+' h':Math.round(rem*60)+' min')+' left':''} · layer ${esc(L.current_layer||'?')}/${esc(L.total_layer_count||'?')}</div>`:''}
-      <div class="for muted">Printing for ${projSelect((D.state.printer_project||{})[p.key],`setPrinterProject('${p.key}',this.value)`)}</div>
+      <div class="for muted"><span>For</span> ${projSelect((D.state.printer_project||{})[p.key],`setPrinterProject('${p.key}',this.value)`)}</div>
       </div></div>`;
   }).join(''));
 }

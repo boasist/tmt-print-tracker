@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3
+
+- Printer cards fit their content: long printer and job names are cut short (full text on hover), menus stay
+  inside the card, and a recognised plate shows its plate name and number.
+
 ## 0.2.2
 
 - After an upload, Rescan or removing a file, the printers' current jobs are looked at again, so a print that
