@@ -15,7 +15,7 @@ from ha import HomeAssistant
 from printers import Printer
 from tracker import Tracker
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
@@ -74,6 +74,13 @@ class App:
     async def on_connect(self):
         for p in self.printers:
             await self.process(p, cover_changed=True)
+
+    async def rematch(self):
+        """After the files changed: look again at what each printer is printing (a job seen before its file was
+        uploaded is recognised now)."""
+        if self.ha and self.ha.connected:
+            for p in self.printers:
+                await self.process(p, cover_changed=True)
 
     async def on_change(self, entity_ids):
         changed = set(entity_ids)
@@ -158,6 +165,7 @@ class App:
             saved.append(name)
         async with self.lock:
             self.rebuild_catalog()
+        await self.rematch()
         return web.json_response({"ok": True, "saved": saved, "missing": self.catalog.get("missing")})
 
     async def h_upload_chunk(self, request):
@@ -186,6 +194,7 @@ class App:
         os.replace(tmp, FILES / name)
         async with self.lock:
             self.rebuild_catalog()
+        await self.rematch()
         return web.json_response({"ok": True, "saved": [name], "missing": self.catalog.get("missing")})
 
     async def h_delete_file(self, request):
@@ -196,11 +205,13 @@ class App:
         path.unlink()
         async with self.lock:
             self.rebuild_catalog()
+        await self.rematch()
         return web.json_response({"ok": True})
 
     async def h_rescan(self, request):
         async with self.lock:
             self.rebuild_catalog()
+        await self.rematch()
         return web.json_response({"ok": True, "missing": self.catalog.get("missing")})
 
     def static_from(self, folder):

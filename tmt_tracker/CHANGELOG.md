@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- After an upload, Rescan or removing a file, the printers' current jobs are looked at again, so a print that
+  started before its file was uploaded is recognised.
+
 ## 0.2.1
 
 - Uploads go in 8 MB pieces, so 3MF files over 16 MB (Home Assistant's ingress limit) upload; sliced projects are

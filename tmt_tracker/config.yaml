@@ -1,5 +1,5 @@
 name: TMT Print Tracker
-version: "0.2.1"
+version: "0.2.2"
 slug: tmt_tracker
 description: >-
   Track the 3D-printed parts of Toddler Mobility Trainer (TMT) builds from your Bambu Lab and Moonraker (Snapmaker U1,
