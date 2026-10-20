@@ -373,6 +373,20 @@ class Tracker:
         self.save()
         return {"moved": e["id"], "project": project}
 
+    def take_from_pool(self, project, part, count=None):
+        """Move one part from the spares into a project: count pieces, or as many as it still needs."""
+        p = self._project(project)
+        if not p:
+            raise ValueError("no such project")
+        want = int(count) if count else self.project_needs(p).get(part, 0) - p["counts"].get(part, 0)
+        n = max(0, min(want, self.st["counts"].get(part, 0)))
+        if n:
+            self.st["counts"][part] -= n
+            p["counts"][part] = p["counts"].get(part, 0) + n
+            self._log(result="moved from spares", project=project, pieces=n, part=part)
+            self.save()
+        return {"moved": n}
+
     def fill_from_pool(self, project):
         """Move parts the project still needs from the pool into it."""
         p = self._project(project)

@@ -15,7 +15,7 @@ from ha import HomeAssistant
 from printers import Printer
 from tracker import Tracker
 
-VERSION = "0.2.6"
+VERSION = "0.2.7"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
@@ -137,7 +137,8 @@ class App:
               "import_counts": self.tracker.import_counts, "project_add": self.tracker.project_add,
               "project_update": self.tracker.project_update, "project_delete": self.tracker.project_delete,
               "printer_project": self.tracker.printer_project, "move_print": self.tracker.move_print,
-              "fill_from_pool": self.tracker.fill_from_pool, "assign_custom": self.tracker.assign_custom}.get(cmd)
+              "fill_from_pool": self.tracker.fill_from_pool, "assign_custom": self.tracker.assign_custom,
+              "take_from_pool": self.tracker.take_from_pool}.get(cmd)
         if not fn:
             return web.json_response({"ok": False, "error": f"unknown command {cmd!r}"}, status=400)
         try:

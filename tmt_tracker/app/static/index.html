@@ -79,6 +79,7 @@ input[type=number]{width:64px}
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input type="text" id="np-name" placeholder="Request #1234, Snapmaker Purple Chair, Wheels order #5678" style="flex:1;min-width:240px">
         <select id="np-kind" onchange="renderOrderParts()"><option value="build">Whole TMT</option><option value="order">Parts order</option></select>
+        <label class="muted" style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="np-spares"> take what it needs from the spare parts</label>
         <button class="primary" onclick="newProject()">Create</button>
       </div>
       <div id="np-order" style="display:none;margin-top:10px">
@@ -271,6 +272,8 @@ function renderFiles(){
     <td><button class="small" onclick="delFile('${esc(x.file).replace(/'/g,"\\'")}')">remove</button></td></tr>`).join(''):'<tr><td class="muted">No 3MF files yet.</td></tr>');
 }
 
+const openParts={};
+async function takeSpare(project,part){const r=await act('take_from_pool',{project,part}); if(r.ok) toast(`Took ${r.moved} from the spares`);}
 const projName=id=>((D.state.projects||[]).find(p=>p.id===id)||{}).name||'(removed project)';
 function projSelect(value,onchange){
   const ps=(D.state.projects||[]).filter(p=>!p.done||p.id===value);
@@ -289,10 +292,15 @@ function renderProjects(){
       <div class="big">${pct}%</div><div class="bar ${x.complete?'ok':''}"><i style="width:${pct}%"></i></div>
       <div>${st} <span class="muted">${x.pieces} of ${x.of} pieces</span> ${printing(p.id)}</div>
       ${!p.done&&miss.length?`<div class="missing muted">Still needed: ${miss.slice(0,10).map(([pid,n])=>`${esc(pname(pid))} ×${n}`).join(', ')}${miss.length>10?`, and ${miss.length-10} more`:''}</div>`:''}
-      <details class="missing"><summary class="muted">parts (− / + to correct)</summary><table class="small-text" style="margin-top:6px">${
-        [...new Set([...Object.keys(x.needs||{}),...Object.keys(p.counts).filter(k=>p.counts[k]>0)])].map(pid=>`<tr><td>${esc(pname(pid))}</td>
-        <td class="num">${p.counts[pid]||0}${x.needs&&x.needs[pid]?' / '+x.needs[pid]:''}</td>
-        <td class="adj"><button class="small" onclick="adjust('${pid}',-1,'${p.id}')">−</button> <button class="small" onclick="adjust('${pid}',1,'${p.id}')">+</button></td></tr>`).join('')}</table></details>
+      <details class="missing" data-proj="${p.id}" ontoggle="openParts[this.dataset.proj]=this.open"${openParts[p.id]?' open':''}><summary class="muted">parts: mark printed, take from spares, correct</summary><table class="small-text" style="margin-top:6px">
+        <tr><th>Part</th><th class="num">Have</th><th class="num">Spare</th><th></th></tr>${
+        [...new Set([...Object.keys(x.needs||{}),...Object.keys(p.counts).filter(k=>p.counts[k]>0)])].map(pid=>{
+          const have=p.counts[pid]||0, need=(x.needs||{})[pid]||0, left=Math.max(0,need-have), sp=pool[pid]||0;
+          return `<tr><td>${have>=need&&need?'✓ ':''}${esc(pname(pid))}</td><td class="num">${have}${need?' / '+need:''}</td><td class="num">${sp||''}</td>
+          <td style="white-space:normal;line-height:28px"><button class="small" onclick="adjust('${pid}',-1,'${p.id}')">−</button> <button class="small" onclick="adjust('${pid}',1,'${p.id}')">+</button>
+          ${left?`<button class="small" title="printed before, not in the tracker" onclick="adjust('${pid}',${left},'${p.id}')">all printed</button>`:''}
+          ${left&&sp?`<button class="small" onclick="takeSpare('${p.id}','${pid}')">take ${Math.min(left,sp)} from spares</button>`:''}</td></tr>`;}).join('')}</table>
+        <div class="muted" style="margin-top:4px">Prints already counted as spares can also be moved here one by one under Recent prints → For.</div></details>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         ${!p.done&&spare?`<button class="small" onclick="fillFromPool('${p.id}')">use spare parts</button>`:''}
         ${p.done?`<button class="small" onclick="projectDone('${p.id}',false)">reopen</button>`:`<button class="small${x.complete?' primary':''}" onclick="projectDone('${p.id}',true)">mark done</button>`}
@@ -318,7 +326,8 @@ async function newProject(){
   if(kind==='order') document.querySelectorAll('#np-parts input').forEach(i=>{if(+i.value>0) needs[i.dataset.part]=+i.value;});
   if(kind==='order'&&!Object.keys(needs).length){toast('Set how many of each part the order needs');return;}
   const r=await act('project_add',{name:$('np-name').value,kind,needs});
-  if(r.ok){$('np-name').value='';clearOrder();$('newproj').open=false;toast('Project created. Pick it under "Printing for" on a printer.');}
+  if(r.ok&&$('np-spares').checked){const f=await act('fill_from_pool',{project:r.project}); if(f.ok) toast(`Project created with ${f.moved} pieces from the spares`);}
+  if(r.ok){$('np-spares').checked=false;$('np-name').value='';clearOrder();$('newproj').open=false;toast('Project created. Pick it under "Printing for" on a printer.');}
 }
 // A checklist of a project's parts, done and still to print, for printing on paper.
 function printProject(id){

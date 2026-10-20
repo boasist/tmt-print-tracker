@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.7
+
+- A project's parts list: **all printed** (parts printed before the tracker knew about the project) and **take N from
+  spares** per part, next to − / +. **New project** can take what it needs from the spares right away.
+
 ## 0.2.6
 
 - **Custom plate** under "which plate is this?": for a modified plate that isn't in any file, pick the parts and how
