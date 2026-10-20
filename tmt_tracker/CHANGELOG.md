@@ -1,9 +1,9 @@
 # Changelog
 
-## 0.2.4
+## 0.2.5
 
-- Bambu Lab printers show the name they have in the Bambu app (the integration entry's title) unless renamed in
-  Home Assistant.
+- Printers show the name you give the device in Home Assistant, else the device's own name (0.2.4 showed bare serial
+  numbers for Bambu Lab printers).
 
 ## 0.2.3
 
