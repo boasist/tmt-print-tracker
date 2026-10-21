@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3
+
+- Uploading a file no longer stalls the app: files already read are remembered, so only the new file is read, and the
+  reading happens in the background while the dashboard and the Home Assistant connection keep running. Before, each
+  upload re-read every file, and with a dozen 100 MB projects the page timed out.
+
 ## 0.3.2
 
 - **Import a BOM**: the Bill of Materials PDF from the 3d-mobility.org build page (New project → import a BOM, or

@@ -116,6 +116,19 @@ def load_profile(path):
     return profile
 
 
+_READ = {}   # file path -> ((size, mtime), read_3mf result, digest): a rebuild only reads new or changed files
+
+
+def _read_cached(path):
+    st = path.stat()
+    stamp = (st.st_size, st.st_mtime_ns)
+    hit = _READ.get(str(path))
+    if not hit or hit[0] != stamp:
+        hit = (stamp, read_3mf(path), hashlib.sha1(path.read_bytes()).hexdigest()[:10])
+        _READ[str(path)] = hit
+    return hit[1], hit[2]
+
+
 def build(profile, files_dir, thumbs_dir):
     """The catalog: parts per build, alternatives, every plate of every 3MF (sources), and which profile files are
     present or missing."""
@@ -136,7 +149,7 @@ def build(profile, files_dir, thumbs_dir):
     parts, sources, files, found = {}, [], [], {}
     for path in sorted(files_dir.glob("*.3mf")):
         try:
-            f = read_3mf(path)
+            f, digest = _read_cached(path)
         except Exception as e:
             log.warning("can't read %s: %s", path.name, e)
             files.append({"file": path.name, "error": str(e)})
@@ -148,7 +161,6 @@ def build(profile, files_dir, thumbs_dir):
             key = None
         if key:
             found[key] = path.name
-        digest = hashlib.sha1(path.read_bytes()).hexdigest()[:10]
         files.append({"file": path.name, "title": f["title"], "profile_file": key, "plates": len(f["plates"])})
         for idx, pl in sorted(f["plates"].items()):
             rule = counting.get((key, idx)) if key else None

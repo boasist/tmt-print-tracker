@@ -19,7 +19,7 @@ from ha import HomeAssistant
 from printers import Printer
 from tracker import Tracker
 
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
@@ -57,6 +57,12 @@ class App:
         if name.endswith((".yaml", ".yml")):
             return CONFIG / name.lstrip("/")
         return APP / "profiles" / f"{name}.yaml"
+
+    async def rebuild(self):
+        """Rebuild the catalog in a worker thread: reading big 3MF files takes a while, and the dashboard and the
+        Home Assistant connection keep running meanwhile."""
+        async with self.lock:
+            await asyncio.get_running_loop().run_in_executor(None, self.rebuild_catalog)
 
     def rebuild_catalog(self):
         FILES.mkdir(parents=True, exist_ok=True)
@@ -354,8 +360,7 @@ class App:
                     f.write(chunk)
             os.replace(tmp, FILES / name)
             saved.append(name)
-        async with self.lock:
-            self.rebuild_catalog()
+        await self.rebuild()
         await self.rematch()
         return web.json_response({"ok": True, "saved": saved, "missing": self.catalog.get("missing")})
 
@@ -383,8 +388,7 @@ class App:
             tmp.unlink()
             return web.json_response({"ok": False, "error": f"{name}: got {size} bytes, expected {total}"})
         os.replace(tmp, FILES / name)
-        async with self.lock:
-            self.rebuild_catalog()
+        await self.rebuild()
         await self.rematch()
         return web.json_response({"ok": True, "saved": [name], "missing": self.catalog.get("missing")})
 
@@ -428,14 +432,12 @@ class App:
         if not name.lower().endswith(".3mf") or not path.exists():
             return web.json_response({"ok": False, "error": "no such file"})
         path.unlink()
-        async with self.lock:
-            self.rebuild_catalog()
+        await self.rebuild()
         await self.rematch()
         return web.json_response({"ok": True})
 
     async def h_rescan(self, request):
-        async with self.lock:
-            self.rebuild_catalog()
+        await self.rebuild()
         await self.rematch()
         return web.json_response({"ok": True, "missing": self.catalog.get("missing")})
 
@@ -455,7 +457,7 @@ class App:
 
     # ------------------------------------------------------------ run
     async def run(self):
-        self.rebuild_catalog()
+        await self.rebuild()
         token = os.environ.get("SUPERVISOR_TOKEN")
         s6_env = Path("/run/s6/container_environment/SUPERVISOR_TOKEN")   # if started without with-contenv
         if not token and s6_env.exists():
