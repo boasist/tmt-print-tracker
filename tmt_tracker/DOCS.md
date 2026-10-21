@@ -1,11 +1,13 @@
 # TMT Print Tracker
 
-Tracks the 3D-printed parts of Toddler Mobility Trainer (TMT) builds from your Bambu Lab printers, keeps a print
-queue per printer, and plans whole builds.
+Tracks the 3D-printed parts of Toddler Mobility Trainer (TMT) builds from your Bambu Lab and Moonraker printers
+(Snapmaker U1 and other Klipper printers), keeps a print queue per printer, and plans whole builds.
 
 ## Getting started
 
-1. Add your printers to Home Assistant with the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab).
+1. Add your printers to Home Assistant with the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab) or,
+   for a Snapmaker U1 or other Klipper printer, the [Moonraker integration](https://github.com/marcolivierarsenault/moonraker)
+   (both from HACS). Give each Moonraker printer its own name when you add it.
 2. Start this app and open **TMT** in the sidebar (turn on **Show in sidebar** on the app's page).
 3. Under **Files**, upload the TMT design files (`.3mf`). A notice at the top lists any file the build profile still
    needs. Files are matched by the **Title inside the 3MF**, so their file names don't matter.
@@ -21,8 +23,11 @@ In this order:
 1. A plate you assigned by hand before (remembered by job name + plate number).
 2. The job name equals a file's Title and the plate number exists in that file. This is the case for prints sent
    from Bambu Studio.
-3. The same plate as the printer's previous job (reprints).
-4. The printer's plate preview image compared with every plate preview in your files: the outlines must overlap by
+3. The job is named after the plate, or the one part on it. Orca-style slicers (Snapmaker Orca for the U1) name the
+   file after it, e.g. `3DTMT F SEAT BACK CENTER TOP REV A_PETG_9h44m.gcode`; the filament and time at the end are
+   ignored. If several plates fit, the plate preview decides between them.
+4. The same plate as the printer's previous job (reprints).
+5. The printer's plate preview image (a Moonraker printer's print thumbnail) compared with every plate preview in your files: the outlines must overlap by
    at least 80% and clearly beat the runner-up. Colour is ignored. This catches prints sent from MakerWorld or Bambu
    Handy, whose job name is the print profile's name.
 
@@ -38,8 +43,25 @@ counted and remembered.
   printed beyond what TMT #1 needs. **Mark assembled** takes one TMT's parts out of the count.
 - **Parts**: every part by group, with ✓ / partial per TMT, what's printing now, and − / + to correct counts (for
   example parts printed before you started using this app, or a part that failed on a plate).
+- **Projects**: a request, a chair not yet for a child, or a parts order (wheels for another maker, say), each counted
+  separately. Create one under **New project**: a whole TMT, or a parts order where you set how many of each part (or
+  fill in one TMT's worth of a group, like Wheels). Then pick it under **Printing for** on a printer card; that printer's
+  finished plates count toward it until you change it. **use spare parts** moves parts the project still needs out of
+  the spares, **mark done** closes it. Under **parts** on its card, − / + corrects a part (one that failed on a plate
+  that otherwise finished); **print list** prints a checklist of what's printed and what's left. Prints for no project go into the spare parts, shown as the planned TMTs below.
+- **Not for a TMT**: under Printing for, for prints that aren't TMT parts. They're logged, never counted.
 - **Recent prints**: counted, failed, not recognised (assign) or not a TMT plate; **undo** takes a print back out.
 - **Files**: the uploaded 3MF files, what each is used as, and the build profile in use.
+
+## Colors from a BOM
+
+The build page on 3d-mobility.org makes a Bill of Materials PDF with each part's filament. Under Projects, **New
+project → import a BOM (PDF)** makes a TMT project named after it, or **import BOM** on a project adds the colors to
+it. Only the color is used ("Numakers — Atomic Pink" is Atomic Pink), with the filament type from the BOM's filament
+summary. BOM items are matched to parts by name (CONNECTORS, BUCKLES AND SLIDES and HARNESS AND STRAPS by part
+group); items that match no part are listed, and you can click any part's color in the project's parts list to set
+it. **Plates by color** then lists the plates the project still needs, grouped by color, and **print by color** prints
+that list.
 
 ## Print queue
 
@@ -117,8 +139,8 @@ TMTs to plan the next one from the start) across your printers.
 
 | Option | |
 |---|---|
-| `profile` | `makegood_tmt_rev_c` (built in), or your own profile file in this app's folder, e.g. `profiles/my_build.yaml`. |
-| `printers` | Leave empty to use every Bambu Lab printer. Or list `name` + `entity_prefix` (for `sensor.my_x1c_print_status` the prefix is `my_x1c`). |
+| `profile` | `makegood_tmt_rev_c` or `snapmaker_u1_complete_chair` (built in), or your own profile file in this app's folder, e.g. `profiles/my_build.yaml`. |
+| `printers` | Leave empty to use every Bambu Lab and Moonraker printer. Or list `name` + `entity_prefix` (for `sensor.my_x1c_print_status` the prefix is `my_x1c`) and, for a Moonraker printer, `type: moonraker` (for `sensor.my_u1_current_print_state` the prefix is `my_u1`). |
 | `notify` | Notify services for phone alerts, e.g. `notify.mobile_app_my_phone`. Empty: no alerts. |
 | `alert_url` | Where tapping an alert goes. Empty: this app's page. |
 | `log_level` | `debug`, `info`, `warning` or `error`. |
@@ -128,7 +150,10 @@ TMTs to plan the next one from the start) across your printers.
 On first start the built-in profiles are copied to `profiles/example_*.yaml` in this app's folder. Copy one to
 `profiles/my_build.yaml`, edit it, set the `profile` option to `profiles/my_build.yaml` and restart the app.
 
-- `files`: the design files, by the Title inside each 3MF.
+- `files`: the design files, by the Title inside each 3MF, and optionally a `filename` pattern for files that share
+  a Title.
+- `count_other_files` (default `true`): a plate of any other 3MF counts when every part on it is a part of the build,
+  for example the same parts laid out for a Snapmaker U1.
 - `plates`: which plates count toward a TMT, each with a `group`, and optionally `material`, `optional: true` and
   `printer_models` (printers whose Home Assistant device model starts with one of these, e.g. `[H2]`). Plates not
   listed are still recognised when printed, and logged as "not a TMT plate".

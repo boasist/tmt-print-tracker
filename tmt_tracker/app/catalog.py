@@ -125,6 +125,9 @@ def build(profile, files_dir, thumbs_dir):
         old.unlink()
     namer = PartNamer(profile)
     wanted = {key: (f.get("title") or "").strip().lower() for key, f in profile["files"].items()}
+    # Optional file name pattern, for files that share a Title (MakeGood's and the Snapmaker U1 project both use
+    # "3D Toddler Mobility Trainer").
+    named = {key: re.compile(f["filename"], re.I) for key, f in profile["files"].items() if f.get("filename")}
     counting = {}   # (file key, plate) -> plate rule
     for rule in profile["plates"]:
         for idx in rule["plates"]:
@@ -138,7 +141,8 @@ def build(profile, files_dir, thumbs_dir):
             log.warning("can't read %s: %s", path.name, e)
             files.append({"file": path.name, "error": str(e)})
             continue
-        key = next((k for k, t in wanted.items() if t and t == f["title"].lower()), None)
+        key = next((k for k, t in wanted.items() if t and t == f["title"].lower()
+                    and (k not in named or named[k].search(path.name))), None)
         if key and key in found:
             log.warning("%s and %s both have the title %r; using the first", found[key], path.name, f["title"])
             key = None
@@ -161,10 +165,18 @@ def build(profile, files_dir, thumbs_dir):
             if idx in f["thumbs"]:
                 thumb = f"{digest}_plate_{idx}.png"
                 (thumbs_dir / thumb).write_bytes(f["thumbs"][idx])
-            sources.append({"id": f"{digest}#{idx}", "file": path.name, "title": f["title"], "plate": idx,
+            sources.append({"id": f"{digest}#{idx}", "file": path.name, "profile_file": key, "title": f["title"], "plate": idx,
                             "plate_name": pl["name"], "counts": rule is not None, "group": rule["group"] if rule else None,
                             "yields": dict(yields), "thumb": thumb, "volume_cm3": pl.get("volume_cm3"),
+                            "names": sorted({re.sub(r"\.(step|stl|3mf|obj)(_\d+)?$", "", raw.strip(), flags=re.I)
+                                             for raw in pl["objects"]}),
                             **({"printer_models": rule["printer_models"]} if rule and rule.get("printer_models") else {})})
+    # A plate of a file the profile doesn't name (e.g. the same parts laid out for another printer, like a Snapmaker U1
+    # project) counts when every part on it is a part of the build.
+    if profile.get("count_other_files", True):
+        for src in sources:
+            if not src["counts"] and src["yields"] and not src["profile_file"] and all(pid in parts for pid in src["yields"]):
+                src["counts"], src["group"] = True, parts[next(iter(src["yields"]))]["group"]
     for pid, q in (profile.get("quantities") or {}).items():
         if pid in parts:
             parts[pid]["qty"] = int(q)

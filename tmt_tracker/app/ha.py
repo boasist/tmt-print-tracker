@@ -131,23 +131,26 @@ class HomeAssistant:
             r.raise_for_status()
             return await r.read()
 
-    async def bambu_printers(self):
-        """Every Bambu Lab printer in Home Assistant, as [{name, prefix, model}], found from its print_status sensor,
-        with the entity ids of each printer (its own and its AMS units' and spools', by entity id prefix)."""
+    async def printers(self):
+        """Every Bambu Lab printer (its print_status sensor) and every Moonraker printer, e.g. Klipper or a Snapmaker U1
+        (its current_print_state sensor), as [{name, prefix, type, model}]."""
         ents = await self.call(type="config/entity_registry/list")
         devs = {d["id"]: d for d in await self.call(type="config/device_registry/list")}
+        kinds = {"bambu_lab": ("bambu", "_print_status"), "moonraker": ("moonraker", "_current_print_state")}
         found = []
         for e in ents:
-            eid = e["entity_id"]
-            if e.get("platform") == "bambu_lab" and eid.startswith("sensor.") and eid.endswith("_print_status") and not e.get("disabled_by"):
+            eid, kind = e["entity_id"], kinds.get(e.get("platform"))
+            if kind and eid.startswith("sensor.") and eid.endswith(kind[1]) and not e.get("disabled_by"):
                 d = devs.get(e.get("device_id")) or {}
-                prefix = eid[len("sensor."):-len("_print_status")]
-                found.append({"name": d.get("name_by_user") or d.get("name") or prefix, "prefix": prefix, "model": d.get("model") or ""})
+                prefix = eid[len("sensor."):-len(kind[1])]
+                found.append({"name": d.get("name_by_user") or d.get("name") or prefix, "prefix": prefix, "type": kind[0],
+                              "model": d.get("model") or ""})
         return sorted(found, key=lambda p: p["name"])
 
-    async def printer_entities(self, prefix):
-        """A printer's entities: bambu_lab sensors, binary sensors, lights, images and cameras named <domain>.<prefix>_..."""
+    async def printer_entities(self, prefix, platform="bambu_lab"):
+        """A printer's entities: its integration's sensors, binary sensors, lights, images and cameras named
+        <domain>.<prefix>_..."""
         ents = await self.call(type="config/entity_registry/list")
         doms = ("sensor.", "binary_sensor.", "light.", "image.", "camera.")
-        return sorted(e["entity_id"] for e in ents if e.get("platform") == "bambu_lab" and not e.get("disabled_by")
+        return sorted(e["entity_id"] for e in ents if e.get("platform") == platform and not e.get("disabled_by")
                       and e["entity_id"].startswith(doms) and e["entity_id"].split(".", 1)[1].startswith(prefix + "_"))

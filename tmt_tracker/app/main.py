@@ -1,6 +1,6 @@
-"""TMT Print Tracker add-on: watches Bambu Lab printers in Home Assistant, works out which plate of which 3MF each one
-is printing, counts the parts of finished plates toward builds, keeps a print queue per printer, and serves the
-dashboard and the build planner over ingress."""
+"""TMT Print Tracker add-on: watches Bambu Lab and Moonraker (e.g. Snapmaker U1) printers in Home Assistant, works out
+which plate of which 3MF each one is printing, counts the parts of finished plates toward builds, keeps a print queue
+per printer, and serves the dashboard and the build planner over ingress."""
 import asyncio
 import json
 import logging
@@ -13,19 +13,18 @@ from pathlib import Path
 
 from aiohttp import ClientSession, web
 
+import bom as bom_mod
 import catalog as catalog_mod
 from ha import HomeAssistant
+from printers import Printer
 from tracker import Tracker
 
-VERSION = "0.3.0"
+VERSION = "0.3.2"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
 FILES = CONFIG / "files"
 OPTIONS = DATA / "options.json"
-LIVE_SENSORS = ("print_status", "task_name", "gcode_filename", "print_progress", "remaining_time", "current_layer",
-                "total_layer_count", "end_time", "current_stage", "start_time")
-JOB_SENSORS = ("print_status", "task_name", "gcode_filename", "current_stage")
 CLEAR_ACTION = "TMT_TRACKER_CLEAR_"   # the alert's "Plate is clear" button: CLEAR_ACTION + printer key in capitals
 TICK_S = 300                          # also look at every printer this often (filament loaded, nozzle, estimates)
 HIDDEN_ATTRS = ("access_token", "entity_picture")
@@ -38,7 +37,7 @@ class App:
         self.options = options
         self.tracker = Tracker(DATA)
         self.lock = asyncio.Lock()
-        self.printers = []            # [{name, prefix, model, entities}]
+        self.printers = []            # [Printer]
         self.catalog = {}
         self.profile_path = None
         self.profile_error = None
@@ -73,26 +72,27 @@ class App:
         self.tracker.set_catalog(self.catalog)
 
     async def entity_ids(self):
-        found = await self.ha.bambu_printers()
+        found = await self.ha.printers()
         configured = self.options.get("printers") or []
         if configured:
             models = {p["prefix"]: p["model"] for p in found}
-            printers = [{"name": p["name"], "prefix": p["entity_prefix"], "model": models.get(p["entity_prefix"], "")} for p in configured]
+            printers = [Printer(p["name"], p["entity_prefix"], p.get("type") or "bambu", models.get(p["entity_prefix"], ""))
+                        for p in configured]
         else:
-            printers = found
+            printers = [Printer(**p) for p in found]
         for p in printers:
-            p["entities"] = await self.ha.printer_entities(p["prefix"])
+            p.entities = await self.ha.printer_entities(p.prefix, p.platform)
         self.printers = printers
-        log.info("printers: %s", ", ".join(f"{p['name']} ({p['prefix']}, {p['model'] or 'model?'}, {len(p['entities'])} entities)"
+        log.info("printers: %s", ", ".join(f"{p.name} ({p.type} {p.prefix}, {p.model or 'model?'}, {len(p.entities)} entities)"
                                            for p in self.printers) or "none found")
-        self.tracker.set_printers({p["prefix"]: {"name": p["name"], "model": p["model"]} for p in self.printers})
+        self.tracker.set_printers({p.prefix: {"name": p.name, "model": p.model} for p in self.printers})
         ids = set()
         for p in self.printers:
-            ids |= set(p["entities"]) | {f"sensor.{p['prefix']}_{s}" for s in LIVE_SENSORS} | {f"image.{p['prefix']}_cover_image"}
+            ids |= set(p.entities) | set(p.entity_ids())
         return sorted(ids)
 
     def printer(self, key):
-        p = next((p for p in self.printers if p["prefix"] == key), None)
+        p = next((p for p in self.printers if p.prefix == key), None)
         if not p:
             raise web.HTTPNotFound(text=f"no printer {key!r}")
         return p
@@ -105,23 +105,30 @@ class App:
             except Exception as e:
                 log.warning("can't listen for the alerts' Plate is clear button: %s", e)
         for p in self.printers:
-            await self.process(p["prefix"], cover_changed=True)
+            await self.process(p, cover_changed=True)
+
+    async def rematch(self):
+        """After the files changed: look again at what each printer is printing (a job seen before its file was
+        uploaded is recognised now)."""
+        if self.ha and self.ha.connected:
+            for p in self.printers:
+                await self.process(p, cover_changed=True)
 
     async def on_change(self, entity_ids):
+        changed = set(entity_ids)
         for p in self.printers:
-            pre = p["prefix"]
-            job = any(e in entity_ids for e in [f"sensor.{pre}_{s}" for s in JOB_SENSORS])
-            cover = f"image.{pre}_cover_image" in entity_ids
+            job = bool(p.job_entities() & changed)
+            cover = p.cover_entity in changed or (p.type != "bambu" and p.entity("gcode_filename") in changed)
             if job or cover:
                 # A finish usually changes several entities at once; handle them together.
-                prev = self._pending.get(pre)
+                prev = self._pending.get(p.prefix)
                 if prev and not prev.done():
                     prev.cancel()
-                self._pending[pre] = asyncio.create_task(self._debounced(pre, cover))
+                self._pending[p.prefix] = asyncio.create_task(self._debounced(p, cover))
 
-    async def _debounced(self, prefix, cover):
+    async def _debounced(self, printer, cover):
         await asyncio.sleep(1.5)
-        await self.process(prefix, cover)
+        await self.process(printer, cover)
 
     async def tick(self):
         while True:
@@ -129,50 +136,30 @@ class App:
             if self.ha and self.ha.connected:
                 for p in self.printers:
                     try:
-                        await self.process(p["prefix"])
+                        await self.process(p)
                     except Exception as e:
-                        log.warning("%s: %s", p["prefix"], e)
+                        log.warning("%s: %s", p.prefix, e)
 
-    def live_info(self, prefix):
-        """What the tracker needs beyond the job sensors: filament types loaded (AMS trays with a spool, plus the
-        external spools' set type, whose 'empty' flag isn't reliable), nozzles per side, the slicer's remaining time,
-        progress, stage, the filament in use, and the printer's job start time."""
-        s, at = self.ha.states, self.ha.attrs
-        p = next((p for p in self.printers if p["prefix"] == prefix), {"entities": []})
-        mats = set()
-        for eid in p["entities"]:
-            if not eid.startswith("sensor.") or not ("_tray_" in eid or eid.endswith("_external_spool")):
-                continue
-            a, state = at.get(eid) or {}, s.get(eid)
-            kind = str(a.get("type") or "").upper()
-            loaded = state not in (None, "Empty", "unknown", "unavailable", "?", "") and (eid.endswith("_external_spool") or not a.get("empty"))
-            if kind and loaded:
-                mats.add(kind)
-        sides = ("left_", "right_") if f"sensor.{prefix}_left_nozzle_size" in s else ("",)
-        nozzles = {(side.rstrip("_") or "main"): {"size": s.get(f"sensor.{prefix}_{side}nozzle_size"),
-                                                 "type": s.get(f"sensor.{prefix}_{side}nozzle_type"),
-                                                 "target": s.get(f"sensor.{prefix}_{side}nozzle_target_temperature")}
-                   for side in sides if s.get(f"sensor.{prefix}_{side}nozzle_size") not in (None, "unknown", "unavailable")}
-        tray = f"sensor.{prefix}_active_tray"
-        return {"materials": sorted(mats), "nozzles": nozzles or None,
-                "remaining": s.get(f"sensor.{prefix}_remaining_time"), "progress": s.get(f"sensor.{prefix}_print_progress"),
-                "stage": s.get(f"sensor.{prefix}_current_stage"), "start_time": s.get(f"sensor.{prefix}_start_time"),
-                "filament": {"name": s.get(tray), "type": (at.get(tray) or {}).get("type"), "id": (at.get(tray) or {}).get("filament_id")}}
+    def live_info(self, printer):
+        info = printer.live_info(self.ha.states, self.ha.attrs)
+        if info["materials"] is None:   # no filament sensors (Moonraker): assume every filament the build uses
+            info["materials"] = sorted({(p.get("material") or "").upper() for p in self.catalog.get("parts", [])} - {""})
+        return info
 
-    async def process(self, prefix, cover_changed=False):
-        s = self.ha.states
-        cover_entity = f"image.{prefix}_cover_image"
-        cover_at = s.get(cover_entity)
+    async def process(self, printer, cover_changed=False):
+        prefix = printer.prefix
+        live = printer.live(self.ha.states)
+        cover_at = printer.cover_at(self.ha.states)
         cover_path = DATA / "covers" / f"{prefix}.png"
         if cover_changed and cover_at not in (None, "unknown", "unavailable"):
             try:
                 cover_path.parent.mkdir(parents=True, exist_ok=True)
-                cover_path.write_bytes(await self.ha.fetch(f"/api/image_proxy/{cover_entity}"))
+                cover_path.write_bytes(await self.ha.fetch(printer.cover_url))
             except Exception as e:
                 log.warning("%s: couldn't fetch the plate preview: %s", prefix, e)
         async with self.lock:
-            res = self.tracker.update(prefix, s.get(f"sensor.{prefix}_print_status"), s.get(f"sensor.{prefix}_task_name"),
-                                      s.get(f"sensor.{prefix}_gcode_filename"), str(cover_path), cover_at, self.live_info(prefix))
+            res = self.tracker.update(prefix, live["print_status"], live["task_name"], live["gcode_filename"],
+                                      str(cover_path), cover_at, self.live_info(printer))
         log.debug("%s: %s", prefix, res)
         if res.get("notify"):
             await self.alert(res["notify"], clear_button=True)
@@ -212,7 +199,7 @@ class App:
         if not action.startswith(CLEAR_ACTION):
             return
         key = action[len(CLEAR_ACTION):].lower()
-        if not any(p["prefix"] == key for p in self.printers):
+        if not any(p.prefix == key for p in self.printers):
             return
         async with self.lock:
             res = self.tracker.command("bed_clear", printer=key)
@@ -223,9 +210,8 @@ class App:
     # ------------------------------------------------------------ web
     def live(self):
         s = self.ha.states if self.ha else {}
-        return [{"key": p["prefix"], "name": p["name"], "model": p.get("model"),
-                 "camera": next((e for e in p.get("entities", []) if e.startswith("camera.")), None),
-                 "live": {k: s.get(f"sensor.{p['prefix']}_{k}") for k in LIVE_SENSORS}} for p in self.printers]
+        return [{"key": p.prefix, "name": p.name, "type": p.type, "model": p.model, "camera": p.camera,
+                 "live": p.live(s)} for p in self.printers]
 
     async def h_data(self, request):
         return web.json_response({
@@ -233,22 +219,26 @@ class App:
             "profile": self.catalog.get("profile"), "profile_path": str(self.profile_path), "profile_error": self.profile_error,
             "catalog": {k: self.catalog.get(k) for k in ("parts", "alternatives", "sources", "files", "missing")},
             "state": self.tracker.published(), "alerts": bool(self.notify_targets()),
-            "summary": self.tracker.summary(), "printers": self.live()})
+            "summary": self.tracker.summary(), "projects": self.tracker.project_summaries(), "printers": self.live()})
 
     async def h_printer(self, request):
         """Every entity of one printer (states and attributes), for the details pop-up."""
         p = self.printer(request.match_info["key"])
         s, at = (self.ha.states, self.ha.attrs) if self.ha else ({}, {})
-        return web.json_response({"states": {e: s.get(e) for e in p["entities"] if e in s},
+        return web.json_response({"states": {e: s.get(e) for e in p.entities if e in s},
                                   "attrs": {e: {k: v for k, v in (at.get(e) or {}).items() if k not in HIDDEN_ATTRS}
-                                            for e in p["entities"] if e in at}})
+                                            for e in p.entities if e in at}})
 
     async def h_action(self, request):
         a = await request.json()
         cmd = a.pop("cmd", "")
         fn = {"assign": self.tracker.assign, "adjust": self.tracker.adjust, "undo": self.tracker.undo,
               "target": self.tracker.target, "assembled": self.tracker.assembled,
-              "import_counts": self.tracker.import_counts}.get(cmd)
+              "import_counts": self.tracker.import_counts, "project_add": self.tracker.project_add,
+              "project_update": self.tracker.project_update, "project_delete": self.tracker.project_delete,
+              "printer_project": self.tracker.printer_project, "move_print": self.tracker.move_print,
+              "fill_from_pool": self.tracker.fill_from_pool, "assign_custom": self.tracker.assign_custom,
+              "take_from_pool": self.tracker.take_from_pool, "project_color": self.tracker.project_color}.get(cmd)
         if not fn and cmd in Tracker.COMMANDS:
             fn = lambda **kw: self.tracker.command(cmd, **kw)
         if not fn:
@@ -262,7 +252,7 @@ class App:
 
     # ------------------------------------------------------------ camera (through Home Assistant's camera entity)
     def camera_entity(self, key):
-        cam = next((e for e in self.printer(key)["entities"] if e.startswith("camera.")), None)
+        cam = self.printer(key).camera
         if not cam or self.ha.states.get(cam) in (None, "unavailable", "unknown"):
             raise web.HTTPConflict(text="the printer's camera isn't available")
         return cam
@@ -366,7 +356,71 @@ class App:
             saved.append(name)
         async with self.lock:
             self.rebuild_catalog()
+        await self.rematch()
         return web.json_response({"ok": True, "saved": saved, "missing": self.catalog.get("missing")})
+
+    async def h_upload_chunk(self, request):
+        """One piece of a large upload (Home Assistant's ingress refuses bodies over 16 MB): ?name=&offset=&total=.
+        Pieces arrive in order; the file is checked and the catalog rebuilt after the last one."""
+        q = request.query
+        name = re.sub(r"[^A-Za-z0-9 ._()+&-]", "_", Path(q.get("name", "")).name)
+        if not name.lower().endswith(".3mf"):
+            return web.json_response({"ok": False, "error": f"{name}: only .3mf files"})
+        offset, total = int(q.get("offset", 0)), int(q.get("total", 0))
+        FILES.mkdir(parents=True, exist_ok=True)
+        tmp = FILES / (name + ".part")
+        if offset == 0:
+            tmp.unlink(missing_ok=True)
+        elif not tmp.exists() or tmp.stat().st_size != offset:
+            return web.json_response({"ok": False, "error": "upload out of order; start again"})
+        with open(tmp, "ab") as f:
+            async for chunk in request.content.iter_chunked(1 << 20):
+                f.write(chunk)
+        size = tmp.stat().st_size
+        if size < total:
+            return web.json_response({"ok": True, "received": size})
+        if size != total:
+            tmp.unlink()
+            return web.json_response({"ok": False, "error": f"{name}: got {size} bytes, expected {total}"})
+        os.replace(tmp, FILES / name)
+        async with self.lock:
+            self.rebuild_catalog()
+        await self.rematch()
+        return web.json_response({"ok": True, "saved": [name], "missing": self.catalog.get("missing")})
+
+    async def h_bom_chunk(self, request):
+        """A BOM PDF from the 3d-mobility.org build page, in pieces like h_upload_chunk (?offset=&total=&project=):
+        the parts' colors go on the project, or on a new one named after the BOM."""
+        q = request.query
+        offset, total = int(q.get("offset", 0)), int(q.get("total", 0))
+        tmp = DATA / "bom_upload.pdf"
+        if offset == 0:
+            tmp.unlink(missing_ok=True)
+        elif not tmp.exists() or tmp.stat().st_size != offset:
+            return web.json_response({"ok": False, "error": "upload out of order; start again"})
+        with open(tmp, "ab") as f:
+            async for chunk in request.content.iter_chunked(1 << 20):
+                f.write(chunk)
+        size = tmp.stat().st_size
+        if size < total:
+            return web.json_response({"ok": True, "received": size})
+        try:
+            if size != total:
+                raise ValueError(f"got {size} bytes, expected {total}")
+            text = await asyncio.get_running_loop().run_in_executor(None, bom_mod.pdf_text, tmp)
+            bom = bom_mod.parse(text)
+            if not bom["items"]:
+                raise ValueError("no printed parts found; is this a Bill of Materials from the build page?")
+            async with self.lock:
+                colors, unmatched = bom_mod.match(bom["items"], self.catalog)
+                res = self.tracker.project_bom(q.get("project") or None, bom, colors, unmatched)
+        except Exception as e:
+            log.warning("BOM import: %s", e)
+            return web.json_response({"ok": False, "error": str(e)})
+        finally:
+            tmp.unlink(missing_ok=True)
+        log.info("BOM %s: %d parts colored, not matched: %s", bom.get("name"), res["colored"], ", ".join(res["unmatched"]) or "none")
+        return web.json_response({"ok": True, **res})
 
     async def h_delete_file(self, request):
         name = Path((await request.json()).get("file", "")).name
@@ -376,11 +430,13 @@ class App:
         path.unlink()
         async with self.lock:
             self.rebuild_catalog()
+        await self.rematch()
         return web.json_response({"ok": True})
 
     async def h_rescan(self, request):
         async with self.lock:
             self.rebuild_catalog()
+        await self.rematch()
         return web.json_response({"ok": True, "missing": self.catalog.get("missing")})
 
     def static_from(self, folder):
@@ -412,7 +468,8 @@ class App:
                         web.post("/api/camera/{key}/hls", self.h_cam_hls), web.get("/api/camera/{key}/still", self.h_cam_still),
                         web.post("/api/camera/session/{sid}/ping", self.h_cam_ping),
                         web.post("/api/camera/session/{sid}/close", self.h_cam_close),
-                        web.post("/api/upload", self.h_upload), web.post("/api/delete_file", self.h_delete_file),
+                        web.post("/api/upload", self.h_upload), web.post("/api/upload_chunk", self.h_upload_chunk),
+                        web.post("/api/bom_chunk", self.h_bom_chunk), web.post("/api/delete_file", self.h_delete_file),
                         web.post("/api/rescan", self.h_rescan),
                         web.get("/thumbs/{name}", self.static_from(DATA / "thumbs")),
                         web.get("/covers/{name}", self.static_from(DATA / "covers"))])

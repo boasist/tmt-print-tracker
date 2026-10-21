@@ -1,0 +1,52 @@
+# Build profile: MakeGood's 3D Toddler Mobility Trainer printed from the Snapmaker U1 "Complete Chair" project
+# (3DTMT_Complete-Chair_..._Snapmaker-U1_..._REV-B, 31 plates: frame, seat, harness, cushions, tires and the
+# one-piece push handle all in one file).
+#
+# The project's Title is "3D Toddler Mobility Trainer", the same as MakeGood's all-parts file, so it is told apart by
+# its file name. Plates of other files (MakeGood's Bambu Studio files, say) still count when every part on them is a
+# part of this build.
+#
+# Copy this file to profiles/my_build.yaml in the add-on's config folder and set the "profile" option to
+# profiles/my_build.yaml to change any choice below.
+name: 3D Toddler Mobility Trainer (Snapmaker U1 complete chair, Rev B)
+default_material: PETG
+
+files:
+  u1:
+    title: 3D Toddler Mobility Trainer
+    filename: 'Snapmaker[-_ ]?U1'
+
+plates:
+  - {file: u1, plates: [1, 2, 3, 4, 5, 6, 7, 8], group: Frame}     # handles, wheel mounts, wings, storage
+  - {file: u1, plates: [10], group: Frame}                          # rear caster mounts, kit version (9 = McMaster)
+  - {file: u1, plates: [29], group: Frame}                          # one-piece footrest (13 + 14 = two-piece)
+  - {file: u1, plates: [11, 12], group: Seat}
+  - {file: u1, plates: [22, 23], group: Seat, material: TPU}        # cushions
+  - {file: u1, plates: [15], group: Connectors}
+  - {file: u1, plates: [16], group: Wheels}                         # wheel rim Rev B, print 4 (28 = smaller Rev A)
+  - {file: u1, plates: [26, 27], group: Wheels, material: TPU}      # tires, 95A or 98A, 8 per plate
+  - {file: u1, plates: [31], group: Push handle}                    # one-piece push handle (U1 only)
+  - {file: u1, plates: [25], group: Push handle, material: TPU}     # grip
+  - {file: u1, plates: [20], group: Buckles & slides}
+  - {file: u1, plates: [21], group: Harness & straps, material: TPU}
+  - {file: u1, plates: [17], group: Headrest, optional: true}
+  - {file: u1, plates: [24], group: Headrest, optional: true, material: TPU}
+
+group_order: [Frame, Seat, Connectors, Wheels, Push handle, Buckles & slides, Harness & straps, Headrest]
+
+quantities:
+  wheel-rim: 4
+  tire: 16
+
+alternatives: []
+
+part_rules:
+  - {match: '^8 Tires|\bTIRE\b', id: tire, name: Tire, code: P}
+  - {match: 'WHEEL RIM', id: wheel-rim, name: Wheel rim, code: O}
+  - {match: 'PUSH HANDLE GRIP|^MG_PUSH HANDLE$', id: push-handle-grip, name: Push handle grip}
+  - {match: 'single ?piece ?handle|PUSH HANDLE 1-PIECE', id: single-piece-push-handle, name: Single-piece push handle}
+  - {match: '^2\.0 ?cm\W*Side A', id: buckle-2cm-a, name: 'Buckle 2 cm, side A'}
+  - {match: '^2\.0 ?cm\W*Side B', id: buckle-2cm-b, name: 'Buckle 2 cm, side B'}
+  - {match: '^3\.2 ?cm\W*Side A', id: buckle-3-2cm-a, name: 'Buckle 3.2 cm, side A'}
+  - {match: '^3\.2 ?cm\W*Side B', id: buckle-3-2cm-b, name: 'Buckle 3.2 cm, side B'}
+strip_prefixes: '^(3D ?TMT|TMT3D|MG_)\s*-?\s*'

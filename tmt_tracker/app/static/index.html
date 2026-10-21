@@ -22,6 +22,10 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .printer{display:grid;grid-template-columns:92px 1fr;gap:12px;align-items:start}
 .printer img{width:92px;height:92px;object-fit:contain;background:var(--chip);border-radius:8px}
 .printer .name{font-weight:600;font-size:16px}
+.printer>div{min-width:0}
+.printer select{width:100%;max-width:100%;text-overflow:ellipsis}
+.printer .clip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.printer .for{display:flex;gap:6px;align-items:center}.printer .for select{flex:1;min-width:0}
 .muted{color:var(--muted)}
 .bar{height:8px;background:var(--chip);border-radius:6px;overflow:hidden;margin:8px 0 4px}
 .bar>i{display:block;height:100%;background:var(--accent);border-radius:6px;transition:width .4s}
@@ -46,6 +50,15 @@ td.slot{text-align:center;min-width:54px}
 .toast{position:fixed;right:16px;bottom:16px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;opacity:0;transition:opacity .3s;max-width:420px}
 .toast.show{opacity:.95}
 .small-text td{font-size:13px}
+input[type=text],input[type=number]{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:4px 8px}
+input[type=number]{width:64px}
+.missing{font-size:13px;margin-top:6px}
+.for{margin-top:6px;font-size:13px}
+.order-parts{display:grid;gap:4px 14px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));margin-top:8px}
+.order-parts label{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:13px}
+#printview{display:none}
+@media print{body>*:not(#printview){display:none!important}#printview{display:block}body{background:#fff;color:#000}
+  #printview table{border:none}#printview th,#printview td{border-bottom:1px solid #999;padding:4px 8px;color:#000;background:#fff}}
 .scroll{overflow-x:auto;border-radius:12px}   /* wide tables scroll sideways on a phone instead of widening the page */
 select{max-width:100%}
 .printer{cursor:pointer}
@@ -95,7 +108,25 @@ dialog.pop::backdrop{background:rgba(0,0,0,.55)}
   <section><h2>Print queue <a href="plan" style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--accent);text-decoration:none;margin-left:8px">Build planner →</a></h2>
     <div id="plan-banner"></div><div class="row" id="queues"></div><div id="queue-extra"></div></section>
   <section>
-    <h2>TMTs <span style="text-transform:none;letter-spacing:0">· planned <button class="small" onclick="setTarget(-1)">−</button> <b id="target">1</b> <button class="small" onclick="setTarget(1)">+</button></span></h2>
+    <h2>Projects</h2>
+    <div class="row" id="projects"></div>
+    <details class="card" id="newproj" style="margin-top:14px">
+      <summary><b>New project</b> <span class="muted">a request, a chair not yet for a child, or a parts order</span></summary>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="text" id="np-name" placeholder="Request #1234, Snapmaker Purple Chair, Wheels order #5678" style="flex:1;min-width:240px">
+        <select id="np-kind" onchange="renderOrderParts()"><option value="build">Whole TMT</option><option value="order">Parts order</option></select>
+        <label class="muted" style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="np-spares"> take what it needs from the spare parts</label>
+        <button class="primary" onclick="newProject()">Create</button>
+      </div>
+      <div style="margin-top:10px" class="muted">Or <button class="small" onclick="importBom('')">import a BOM (PDF)</button> from the build page: a new TMT project named after it, with each part's color for planning plates by color.</div>
+      <div id="np-order" style="display:none;margin-top:10px">
+        <div class="muted">How many of each part this order needs. Fill in one TMT's worth of a group: <select id="np-group"></select> <button class="small" onclick="fillGroup()">fill</button> <button class="small" onclick="clearOrder()">clear</button></div>
+        <div class="order-parts" id="np-parts"></div>
+      </div>
+    </details>
+  </section>
+  <section>
+    <h2>Spare parts · TMTs not in a project <span style="text-transform:none;letter-spacing:0">· planned <button class="small" onclick="setTarget(-1)">−</button> <b id="target">1</b> <button class="small" onclick="setTarget(1)">+</button></span></h2>
     <div class="row" id="builds"></div>
   </section>
   <section><h2>Parts</h2><div class="scroll"><table id="parts"></table></div></section>
@@ -110,6 +141,16 @@ dialog.pop::backdrop{background:rgba(0,0,0,.55)}
   </section>
 </main>
 <div class="toast" id="toast"></div>
+<div id="printview"></div>
+<dialog id="custom" class="card" style="max-width:480px;width:calc(100% - 32px);color:var(--ink)">
+  <b>Custom plate</b> <span class="muted">which parts, and how many</span>
+  <div id="cp-rows" style="margin-top:8px"></div>
+  <div style="margin-top:10px;display:flex;gap:6px;justify-content:flex-end">
+    <button class="small" onclick="addCustomRow()">+ another part</button>
+    <button class="small" onclick="$('custom').close()">cancel</button>
+    <button class="small primary" onclick="saveCustom()">count these</button>
+  </div>
+</dialog>
 <dialog class="pop" id="pop">
   <div class="pop-head"><span class="name" id="pop-name"></span><span id="pop-status"></span><button onclick="$('pop').close()">Close</button></div>
   <div class="pop-body"><div class="cam" id="pop-cam"></div><div class="specs" id="pop-specs"></div></div>
@@ -138,8 +179,8 @@ async function post(path,body){
 const act=(cmd,data={})=>post('api/action',{cmd,...data});
 
 const cat=()=>D.catalog;
-const srcById=id=>cat().sources.find(s=>s.id===id);
-const srcLabel=s=>s?(s.plate_name?s.plate_name+' · ':'')+(s.title||s.file)+' · plate '+s.plate:'';
+const srcById=id=>cat().sources.find(s=>s.id===id)||(D.state.custom||{})[id];
+const srcLabel=s=>s&&s.title==='custom plate'?'Custom plate: '+s.plate_name:s?(s.plate_name?s.plate_name+' · ':'')+(s.title||s.file)+' · plate '+s.plate:'';
 const covered=(count,qty,k)=>Math.max(0,Math.min(qty,count-(k-1)*qty));
 
 function nowPrinting(){
@@ -171,7 +212,7 @@ function render(){
   $('target').textContent=D.state.target;
   const sm=D.summary;
   $('sub').textContent=`${D.profile||'no profile'} · ${sm.assembled||0} assembled · ${sm.complete_in_pool||0} ready in printed parts`;
-  renderNotices(); renderPrinters(); renderQueues(); renderBuilds(); renderParts(); renderHist(); renderFiles();
+  renderNotices(); renderPrinters(); renderProjects(); renderQueues(); renderBuilds(); renderParts(); renderHist(); renderFiles();
 }
 
 function renderNotices(){
@@ -179,13 +220,13 @@ function renderNotices(){
   if(D.profile_error) n.push(`<div class="card notice"><b>Profile problem:</b> ${esc(D.profile_error)}</div>`);
   if(D.catalog.missing&&D.catalog.missing.length) n.push(`<div class="card notice"><b>${D.catalog.missing.length} design file(s) still needed</b> — upload them under Files below:
     <ul>${D.catalog.missing.map(m=>`<li>${esc(m.title)}</li>`).join('')}</ul><span class="muted">Files are matched by the Title inside the 3MF, so the file name doesn't matter.</span></div>`);
-  if(!D.printers.length) n.push('<div class="card notice"><b>No printers.</b> Add your Bambu Lab printers to Home Assistant with the Bambu Lab integration, or list them in the add-on options.</div>');
+  if(!D.printers.length) n.push('<div class="card notice"><b>No printers.</b> Add your printers to Home Assistant with the Bambu Lab or Moonraker integration, or list them in the add-on options.</div>');
   setHTML('notices',n.join(''));
 }
 
 function assignSelect(onchange){
   const opts=cat().sources.map(s=>`<option value="${esc(s.id)}">${esc((s.counts?'':'(not counted) ')+srcLabel(s))}</option>`).join('');
-  return `<select onchange="${onchange}"><option value="">which plate is this?</option>${opts}</select>`;
+  return `<select onchange="${onchange}"><option value="">which plate is this?</option><option value="__custom">custom plate: pick the parts…</option>${opts}</select>`;
 }
 
 function renderPrinters(){
@@ -195,9 +236,11 @@ function renderPrinters(){
     const s=srcById(cur.source); const active=ACTIVE.includes(status);
     const img=s&&s.thumb?'thumbs/'+s.thumb:`covers/${p.key}.png?t=${encodeURIComponent(D.state.updated||'')}`;
     let what;
-    if(active||status==='finish'||status==='failed'){
-      what=s?`<div>${esc(srcLabel(s))}</div>${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
-        :`<div>${esc(L.task_name||cur.task||'')} · plate ${esc(cur.plate??'?')}</div><div><span class="tag warn">not recognised</span> ${assignSelect(`assignPrinter('${p.key}',this.value)`)}</div>`;
+    const notTmt=(D.state.printer_project||{})[p.key]==='-';
+    if(notTmt&&(active||status==='finish'||status==='failed')) what=`<div class="clip" title="${esc(L.task_name||cur.task||'')}">${esc(L.task_name||cur.task||'')}</div><div class="muted">not for a TMT, not counted</div>`;
+    else if(active||status==='finish'||status==='failed'){
+      what=s?`<div class="clip" title="${esc(srcLabel(s))}">${esc(s.plate_name||'plate '+s.plate)} <span class="muted">· plate ${esc(s.plate)}</span></div>${plateColors(p.key,s)}${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
+        :`<div class="clip" title="${esc(L.task_name||cur.task||'')}">${esc(L.task_name||cur.task||'')}${cur.plate!=null?' · plate '+esc(cur.plate):''}</div><div><span class="tag warn">not recognised</span></div><div>${assignSelect(`assignPrinter('${p.key}',this.value)`)}</div>`;
     } else what='<div class="muted">idle</div>';
     const bed=((D.state.bed||{})[p.key]||{}).state, q=(D.state.queue||{})[p.key]||[], ns=q.length&&srcById(q[0].source);
     if(bed==='needs_clearing'&&!active) what+=`<div style="margin-top:6px"><span class="tag warn">plate needs clearing</span> <button class="small primary" onclick="bedClear('${p.key}')">Plate is clear</button></div>`;
@@ -205,8 +248,9 @@ function renderPrinters(){
     if(ns) what+=`<div class="muted" style="margin-top:4px">Next: ${esc((ns.plate_name||ns.title)+' · plate '+ns.plate)}</div>`;
     const tag=status==='finish'?'ok':status==='failed'?'bad':active?'now':'';
     return `<div class="card printer" title="Camera and details" onclick="if(!event.target.closest('select,button'))openPrinter('${p.key}')"><img src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
-      <div><div class="name">${esc(p.name)} <span class="tag ${tag}">${esc(status)}</span><span class="more">details ›</span></div>${what}
+      <div><div class="name clip" title="${esc(p.name)}">${esc(p.name)} <span class="tag ${tag}">${esc(status)}</span><span class="more">details ›</span></div>${what}
       ${active?`<div class="bar"><i style="width:${prog}%"></i></div><div class="muted">${prog}%${isFinite(rem)?' · '+(rem>=1?rem.toFixed(1)+' h':Math.round(rem*60)+' min')+' left':''} · layer ${esc(L.current_layer||'?')}/${esc(L.total_layer_count||'?')}</div>`:''}
+      <div class="for muted"><span>For</span> ${projSelect((D.state.printer_project||{})[p.key],`setPrinterProject('${p.key}',this.value)`)}</div>
       </div></div>`;
   }).join(''));
 }
@@ -253,14 +297,15 @@ function renderHist(){
   if(!rows.length){setHTML('hist','<tr><td class="muted">No finished prints yet.</td></tr>');return;}
   const t=s=>new Date(s).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
   const res=r=>({counted:'<span class="tag ok">counted</span>',failed:'<span class="tag bad">failed</span>',unmatched:'<span class="tag warn">not recognised</span>',
-    other:'<span class="tag">not a TMT plate</span>',imported:'<span class="tag">imported</span>',undone:'<span class="tag">undone</span>',adjusted:'<span class="tag">adjusted</span>',assembled:'<span class="tag ok">assembled</span>'}[r]||esc(r));
+    other:'<span class="tag">not a TMT plate</span>','not tmt':'<span class="tag">not for a TMT</span>','moved from spares':'<span class="tag">moved from spares</span>','project done':'<span class="tag ok">project done</span>','project reopened':'<span class="tag">project reopened</span>','bom imported':'<span class="tag">BOM imported</span>',imported:'<span class="tag">imported</span>',undone:'<span class="tag">undone</span>',adjusted:'<span class="tag">adjusted</span>',assembled:'<span class="tag ok">assembled</span>'}[r]||esc(r));
   const pname=id=>(cat().parts.find(p=>p.id===id)||{}).name||id;
-  setHTML('hist','<tr><th>When</th><th>Printer</th><th>What</th><th>Result</th><th></th></tr>'+rows.map(e=>{
+  setHTML('hist','<tr><th>When</th><th>Printer</th><th>What</th><th>Result</th><th>For</th><th></th></tr>'+rows.map(e=>{
     const s=srcById(e.source);
-    const what=e.result==='imported'?`${e.pieces} pieces of ${e.parts} parts`:e.result==='adjusted'?`${esc(pname(e.part))} ${e.delta>0?'+':''}${e.delta}`:e.result==='assembled'?`TMT #${e.build}`:s?esc(srcLabel(s)):`${esc(e.task||'')} · plate ${esc(e.plate??'?')}`;
-    const a=e.result==='unmatched'?assignSelect(`assignLog(${e.id},this.value)`):e.result==='counted'?`<button class="small" onclick="undo(${e.id})">undo</button>`:'';
+    const what=e.result==='moved from spares'?`${e.pieces} pieces → ${esc(projName(e.project))}`:e.result.startsWith('project')?esc(projName(e.project)):e.result==='imported'?`${e.pieces} pieces of ${e.parts} parts`:e.result==='adjusted'?`${esc(pname(e.part))} ${e.delta>0?'+':''}${e.delta}`:e.result==='assembled'?`TMT #${e.build}`:s?esc(srcLabel(s)):`${esc(e.task||'')} · plate ${esc(e.plate??'?')}`;
+    const a=e.result==='unmatched'?assignSelect(`assignLog(${e.id},this.value)`)+` <button class="small" onclick="movePrint(${e.id},'-')">not for a TMT</button>`:e.result==='counted'?`<button class="small" onclick="undo(${e.id})">undo</button>`:'';
     const pr=(D.printers.find(p=>p.key===e.printer)||{}).name||e.printer||'';
-    return `<tr><td>${t(e.time)}</td><td>${esc(pr)}</td><td>${what}</td><td>${res(e.result)}</td><td>${a}</td></tr>`;
+    const fo=e.result==='counted'?projSelect(e.project,`movePrint(${e.id},this.value)`):e.project?esc(projName(e.project)):'';
+    return `<tr><td>${t(e.time)}</td><td>${esc(pr)}</td><td>${what}</td><td>${res(e.result)}</td><td>${fo}</td><td>${a}</td></tr>`;
   }).join(''));
 }
 
@@ -271,6 +316,164 @@ function renderFiles(){
     <td>${x.plates??''}</td><td>${x.profile_file?`<span class="tag ok">${esc(x.profile_file)}</span>`:'<span class="tag">other (recognised, not counted)</span>'}</td>
     <td><button class="small" onclick="delFile('${esc(x.file).replace(/'/g,"\\'")}')">remove</button></td></tr>`).join(''):'<tr><td class="muted">No 3MF files yet.</td></tr>');
 }
+
+const openParts={}, openColors={}, colorFile={};
+// A BOM color ("Atomic Pink", "Mint Green") as a CSS color for the dot next to it: the whole name if CSS knows it,
+// else its last word. The name is what counts; the dot is only a hint.
+function colorDot(name){
+  const n=String(name||'').toLowerCase().replace(/[^a-z]/g,''), w=String(name||'').toLowerCase().split(/\s+/).pop();
+  const css=CSS.supports('color',n)?n:CSS.supports('color',w)?w:'';
+  return css?`<span class="swatch" style="background:${css}"></span>`:'';
+}
+// The colors the printer's project wants for the plate it's printing.
+function plateColors(key,s){
+  const p=(D.state.projects||[]).find(x=>x.id===(D.state.printer_project||{})[key]); if(!p||!p.colors) return '';
+  const cols=[...new Set(Object.keys(s.yields||{}).map(pid=>colorOf(p,pid)).filter(Boolean))];
+  return cols.length?`<div class="clip">${cols.map(c=>colorDot(c)+esc(c)).join(' + ')} <span class="muted">for ${esc(p.name)}</span></div>`:'';
+}
+const colorOf=(p,pid)=>((p.colors||{})[pid]||{}).color||'';
+const colorTag=(p,pid)=>{const c=(p.colors||{})[pid]; return c?`${colorDot(c.color)}${esc(c.color)}${c.material?` <span class="muted">${esc(c.material)}</span>`:''}`:'<span class="muted">no color</span>';};
+// The plates that print what a project still needs, grouped by the colors on the plate (a multi-color plate, e.g.
+// on a U1, is its own group). How many times: enough for the part it has least of.
+function colorPlan(p,x,file){
+  const groups={};
+  for(const s of cat().sources.filter(s=>s.counts&&(!file||s.file===file))){
+    const need=Object.keys(s.yields).filter(pid=>(x.missing||{})[pid]>0); if(!need.length) continue;
+    const cols=[...new Set(Object.keys(s.yields).map(pid=>colorOf(p,pid)||'no color'))].sort();
+    const times=Math.max(...need.map(pid=>Math.ceil(x.missing[pid]/s.yields[pid])));
+    (groups[cols.join(' + ')]=groups[cols.join(' + ')]||[]).push({s,need,times});
+  }
+  return Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0]));
+}
+function planFiles(x){return [...new Set(cat().sources.filter(s=>s.counts&&Object.keys(s.yields).some(pid=>(x.missing||{})[pid]>0)).map(s=>s.file))].sort();}
+function colorPlanHTML(p,x){
+  const files=planFiles(x), file=files.includes(colorFile[p.id])?colorFile[p.id]:'';
+  const pname=id=>(cat().parts.find(q=>q.id===id)||{}).name||id;
+  const plan=colorPlan(p,x,file);
+  const unm=(p.bom&&p.bom.unmatched)||[];
+  return `<div style="margin:6px 0">Plates from <select onchange="colorFile['${p.id}']=this.value;render()"><option value="">all files</option>${files.map(f=>`<option${f===file?' selected':''}>${esc(f)}</option>`).join('')}</select>
+    ${file?'':'<span class="muted">(a part made in several files is listed under each)</span>'}</div>
+    ${plan.length?plan.map(([col,rows])=>`<div style="margin-top:8px"><b>${col.split(' + ').map(c=>colorDot(c)+esc(c)).join(' + ')}</b>
+      <ul style="margin:4px 0 0 18px;padding:0">${rows.map(r=>`<li>${esc(r.s.plate_name||r.s.title)} <span class="muted">· plate ${esc(r.s.plate)}${files.length>1&&!file?' · '+esc(r.s.file):''}</span>${r.times>1?` <b>×${r.times}</b>`:''}
+        <span class="muted">for ${r.need.map(pid=>esc(pname(pid))).join(', ')}</span></li>`).join('')}</ul></div>`).join('')
+      :'<div class="muted">Nothing left to print.</div>'}
+    ${unm.length?`<div class="muted" style="margin-top:6px">In the BOM but not matched to a part: ${unm.map(esc).join(', ')}. Set a part's color in the parts list above.</div>`:''}`;
+}
+function importBom(project){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='application/pdf,.pdf';
+  inp.onchange=async()=>{
+    const f=inp.files[0]; if(!f) return; const CH=8*1024*1024;
+    try{
+      let r;
+      for(let off=0;off<f.size;off+=CH){
+        toast(`Reading the BOM… ${Math.round(100*off/f.size)}%`);
+        r=await (await fetch(`api/bom_chunk?offset=${off}&total=${f.size}&project=${encodeURIComponent(project||'')}`,{method:'POST',body:f.slice(off,off+CH)})).json();
+        if(!r.ok) throw new Error(r.error);
+      }
+      openColors[r.project]=true;
+      toast(`BOM imported: ${r.colored} parts have a color${r.unmatched.length?`; not matched: ${r.unmatched.join(', ')}`:''}`);
+    }catch(e){toast('BOM import failed: '+e.message);}
+    await load();
+  };
+  inp.click();
+}
+async function setColor(project,part){
+  const p=(D.state.projects||[]).find(x=>x.id===project), cur=(p.colors||{})[part]||{};
+  const c=prompt(`Color for ${(cat().parts.find(q=>q.id===part)||{}).name||part} (empty to clear)`,cur.color||''); if(c===null) return;
+  await act('project_color',{project,part,color:c,material:cur.material||null});
+}
+function printColors(id){
+  const p=(D.state.projects||[]).find(x=>x.id===id), x=(D.projects||[]).find(x=>x.id===id); if(!p||!x) return;
+  const pname=pid=>(cat().parts.find(q=>q.id===pid)||{}).name||pid;
+  const rows=colorPlan(p,x,colorFile[id]||'').map(([col,rs])=>`<tr><th colspan="4" style="text-align:left">${esc(col)}</th></tr>`+rs.map(r=>
+    `<tr><td>☐</td><td>${esc(r.s.plate_name||r.s.title)} · plate ${esc(r.s.plate)}</td><td>${r.times>1?'×'+r.times:''}</td><td>${r.need.map(pid=>esc(pname(pid))).join(', ')}</td></tr>`).join('')).join('');
+  $('printview').innerHTML=`<h2 style="color:#000">${esc(p.name)}: plates by color</h2><p>${colorFile[id]?esc(colorFile[id])+' · ':''}${new Date().toLocaleString()}</p>
+    <table><tr><th></th><th>Plate</th><th></th><th>For</th></tr>${rows}</table>`;
+  window.print();
+}
+async function takeSpare(project,part){const r=await act('take_from_pool',{project,part}); if(r.ok) toast(`Took ${r.moved} from the spares`);}
+const projName=id=>((D.state.projects||[]).find(p=>p.id===id)||{}).name||'(removed project)';
+function projSelect(value,onchange){
+  const ps=(D.state.projects||[]).filter(p=>!p.done||p.id===value);
+  return `<select onchange="${onchange}"><option value="">spare parts (no project)</option><option value="-"${value==='-'?' selected':''}>not for a TMT</option>${ps.map(p=>`<option value="${esc(p.id)}"${p.id===value?' selected':''}>${esc(p.name)}</option>`).join('')}</select>`;
+}
+function renderProjects(){
+  const ps=D.state.projects||[], sums=Object.fromEntries((D.projects||[]).map(x=>[x.id,x]));
+  const pname=id=>(cat().parts.find(p=>p.id===id)||{}).name||id;
+  const pool=D.state.counts||{};
+  const printing=id=>D.printers.filter(p=>(D.state.printer_project||{})[p.key]===id).map(p=>`<span class="tag now">${esc(p.name)}</span>`).join('');
+  const card=p=>{
+    const x=sums[p.id]||{pieces:0,of:0,missing:{}}; const pct=x.of?Math.round(100*x.pieces/x.of):0;
+    const miss=Object.entries(x.missing); const spare=miss.some(([pid])=>(pool[pid]||0)>0);
+    const st=p.done?'<span class="tag ok">done</span>':x.complete?'<span class="tag ok">all parts printed</span>':pct>0?'<span class="tag now">in progress</span>':'<span class="tag">not started</span>';
+    return `<div class="card"><div class="muted">${p.kind==='order'?'Parts order':'TMT'}</div><div class="name" style="font-weight:600;font-size:16px">${esc(p.name)}</div>
+      <div class="big">${pct}%</div><div class="bar ${x.complete?'ok':''}"><i style="width:${pct}%"></i></div>
+      <div>${st} <span class="muted">${x.pieces} of ${x.of} pieces</span> ${printing(p.id)}</div>
+      ${!p.done&&miss.length?`<div class="missing muted">Still needed: ${miss.slice(0,10).map(([pid,n])=>`${esc(pname(pid))} ×${n}`).join(', ')}${miss.length>10?`, and ${miss.length-10} more`:''}</div>`:''}
+      <details class="missing" data-proj="${p.id}" ontoggle="openParts[this.dataset.proj]=this.open"${openParts[p.id]?' open':''}><summary class="muted">parts: mark printed, take from spares, correct</summary><table class="small-text" style="margin-top:6px">
+        <tr><th>Part</th>${p.colors?'<th>Color</th>':''}<th class="num">Have</th><th class="num">Spare</th><th></th></tr>${
+        [...new Set([...Object.keys(x.needs||{}),...Object.keys(p.counts).filter(k=>p.counts[k]>0)])].map(pid=>{
+          const have=p.counts[pid]||0, need=(x.needs||{})[pid]||0, left=Math.max(0,need-have), sp=pool[pid]||0;
+          return `<tr><td>${have>=need&&need?'✓ ':''}${esc(pname(pid))}</td>${p.colors?`<td style="cursor:pointer" title="Click to change" onclick="setColor('${p.id}','${pid}')">${colorTag(p,pid)}</td>`:''}<td class="num">${have}${need?' / '+need:''}</td><td class="num">${sp||''}</td>
+          <td style="white-space:normal;line-height:28px"><button class="small" onclick="adjust('${pid}',-1,'${p.id}')">−</button> <button class="small" onclick="adjust('${pid}',1,'${p.id}')">+</button>
+          ${left?`<button class="small" title="printed before, not in the tracker" onclick="adjust('${pid}',${left},'${p.id}')">all printed</button>`:''}
+          ${left&&sp?`<button class="small" onclick="takeSpare('${p.id}','${pid}')">take ${Math.min(left,sp)} from spares</button>`:''}</td></tr>`;}).join('')}</table>
+        <div class="muted" style="margin-top:4px">Prints already counted as spares can also be moved here one by one under Recent prints → For.</div></details>
+      ${p.colors&&!p.done?`<details class="missing" data-proj="${p.id}" ontoggle="openColors[this.dataset.proj]=this.open"${openColors[p.id]?' open':''}><summary class="muted">plates by color${p.bom&&p.bom.date?` (BOM of ${esc(p.bom.date)})`:''}</summary>${colorPlanHTML(p,x)}</details>`:''}
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        ${!p.done&&spare?`<button class="small" onclick="fillFromPool('${p.id}')">use spare parts</button>`:''}
+        ${p.done?`<button class="small" onclick="projectDone('${p.id}',false)">reopen</button>`:`<button class="small${x.complete?' primary':''}" onclick="projectDone('${p.id}',true)">mark done</button>`}
+        <button class="small" onclick="printProject('${p.id}')">print list</button>
+        ${p.colors?`<button class="small" onclick="printColors('${p.id}')">print by color</button>`:''}
+        <button class="small" title="The Bill of Materials PDF from the build page: each part's color" onclick="importBom('${p.id}')">${p.colors?'new BOM':'import BOM'}</button>
+        <button class="small" onclick="renameProject('${p.id}')">rename</button>
+        <button class="small" onclick="deleteProject('${p.id}')">remove</button></div></div>`;
+  };
+  const open=ps.filter(p=>!p.done), done=ps.filter(p=>p.done).slice(-6).reverse();
+  setHTML('projects',(open.length?open.map(card).join(''):'<div class="muted">No projects. Prints count toward the spare parts below. Create a project to keep a request, a chair or a parts order separate.</div>')
+    +(done.length?`<details class="card"><summary class="muted">Done (${ps.filter(p=>p.done).length})</summary><div class="row" style="margin-top:10px">${done.map(card).join('')}</div></details>`:''));
+}
+function renderOrderParts(){
+  const order=$('np-kind').value==='order'; $('np-order').style.display=order?'':'none';
+  if(!order||$('np-parts').dataset.n==String(cat().parts.length)) return;
+  $('np-parts').dataset.n=cat().parts.length;
+  $('np-parts').innerHTML=cat().parts.map(p=>`<label><span><span class="code">${esc(p.code)}</span>${esc(p.name)}</span><input type="number" min="0" value="0" data-part="${esc(p.id)}"></label>`).join('');
+  $('np-group').innerHTML=[...new Set(cat().parts.map(p=>p.group))].map(g=>`<option>${esc(g)}</option>`).join('');
+}
+function fillGroup(){const g=$('np-group').value; for(const p of cat().parts.filter(p=>p.group===g)){const i=document.querySelector(`#np-parts input[data-part="${p.id}"]`); if(i) i.value=(+i.value||0)+p.qty;}}
+function clearOrder(){document.querySelectorAll('#np-parts input').forEach(i=>i.value=0);}
+async function newProject(){
+  const kind=$('np-kind').value, needs={};
+  if(kind==='order') document.querySelectorAll('#np-parts input').forEach(i=>{if(+i.value>0) needs[i.dataset.part]=+i.value;});
+  if(kind==='order'&&!Object.keys(needs).length){toast('Set how many of each part the order needs');return;}
+  const r=await act('project_add',{name:$('np-name').value,kind,needs});
+  if(r.ok&&$('np-spares').checked){const f=await act('fill_from_pool',{project:r.project}); if(f.ok) toast(`Project created with ${f.moved} pieces from the spares`);}
+  if(r.ok){$('np-spares').checked=false;$('np-name').value='';clearOrder();$('newproj').open=false;toast('Project created. Pick it under "Printing for" on a printer.');}
+}
+// A checklist of a project's parts, done and still to print, for printing on paper.
+function printProject(id){
+  const p=(D.state.projects||[]).find(x=>x.id===id), x=(D.projects||[]).find(x=>x.id===id); if(!p||!x) return;
+  const parts=cat().parts, byId=Object.fromEntries(parts.map(q=>[q.id,q]));
+  const ids=[...new Set([...Object.keys(x.needs),...Object.keys(p.counts).filter(k=>p.counts[k]>0)])];
+  const groups=[...new Set(ids.map(pid=>(byId[pid]||{}).group||'Other'))];
+  let rows='';
+  for(const g of groups){
+    rows+=`<tr><th colspan="5" style="text-align:left">${esc(g)}</th></tr>`;
+    for(const pid of ids.filter(pid=>((byId[pid]||{}).group||'Other')===g)){
+      const q=byId[pid]||{name:pid,code:''}, need=x.needs[pid]||0, have=p.counts[pid]||0, left=Math.max(0,need-have);
+      rows+=`<tr><td>${left?'☐':'☑'}</td><td>${esc(q.code)} ${esc(q.name)}</td><td>${esc(q.material||'')}</td><td>${have} of ${need}</td><td>${left?left+' to print':'done'}</td></tr>`;
+    }
+  }
+  $('printview').innerHTML=`<h2 style="color:#000">${esc(p.name)}</h2><p>${p.kind==='order'?'Parts order':'TMT'} · ${x.pieces} of ${x.of} pieces printed · ${new Date().toLocaleString()}</p>
+    <table><tr><th></th><th>Part</th><th>Material</th><th>Printed</th><th>Left</th></tr>${rows}</table>`;
+  window.print();
+}
+async function setPrinterProject(printer,project){await act('printer_project',{printer,project:project||null});}
+async function movePrint(id,project){await act('move_print',{log_id:id,project:project||null});}
+async function fillFromPool(id){const r=await act('fill_from_pool',{project:id}); if(r.ok) toast(`Moved ${r.moved} spare pieces into ${projName(id)}`);}
+async function projectDone(id,done){if(!done||confirm(`Mark ${projName(id)} as done?`)) await act('project_update',{project:id,done});}
+async function renameProject(id){const n=prompt('Project name',projName(id)); if(n) await act('project_update',{project:id,name:n});}
+async function deleteProject(id){if(confirm(`Remove ${projName(id)}? Its printed parts go back into the spare parts.`)) await act('project_delete',{project:id});}
 
 // ------------------------------------------------------------------ print queue
 // One card per printer: its plates in order (the first is next), the filament it can print (what's loaded, or set
@@ -354,6 +557,9 @@ async function openPrinter(key){popKey=key; camFor=null; live={}; attrs={}; awai
 async function refreshPop(){
   if(!popKey) return;
   try{const r=await (await fetch('api/printer/'+encodeURIComponent(popKey),{cache:'no-store'})).json(); live=r.states||{}; attrs=r.attrs||{};}catch(e){}
+  // A Moonraker printer's sensors have other names: show its job values under the Bambu names this pop-up reads.
+  const p=D.printers.find(x=>x.key===popKey);
+  if(p&&p.type&&p.type!=='bambu') for(const [n,v] of Object.entries(p.live||{})) if(v!=null) live[E(popKey,n)]=v;
   renderPop(); camSync();
 }
 function renderPop(){
@@ -495,21 +701,44 @@ function camStills(me,box){
   tick();
 }
 
-async function adjust(part,delta){const r=await act('adjust',{part,delta}); if(r.ok) toast(`${(cat().parts.find(p=>p.id===part)||{}).name}: ${r.count}`);}
+async function adjust(part,delta,project){const r=await act('adjust',{part,delta,project:project||null}); if(r.ok) toast(`${(cat().parts.find(p=>p.id===part)||{}).name}: ${r.count}`);}
 async function setTarget(d){await act('target',{count:Math.max(1,(D.state.target||1)+d)});}
 async function assembled(n){if(confirm(`Mark TMT #${n} as assembled? Its parts come out of the printed pool.`)){const r=await act('assembled'); if(r.ok) toast(`TMT #${n} assembled`);}}
 async function undo(id){if(confirm('Take this print back out of the counts?')) await act('undo',{log_id:id});}
-async function assignLog(id,source){if(source){const r=await act('assign',{log_id:id,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
-async function assignPrinter(printer,source){if(source){const r=await act('assign',{printer,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
+// A modified plate: pick parts and how many in a small dialog, then count them (and remember it for this job).
+function customPlate(target){
+  const d=$('custom'); d._target=target; $('cp-rows').innerHTML=''; addCustomRow(); d.showModal();
+}
+function addCustomRow(){
+  const opts=cat().parts.map(p=>`<option value="${esc(p.id)}">${esc((p.code?p.code+' ':'')+p.name)}</option>`).join('');
+  $('cp-rows').insertAdjacentHTML('beforeend',`<div style="display:flex;gap:6px;margin:4px 0"><input type="number" min="1" value="1"><select style="flex:1;min-width:0">${opts}</select></div>`);
+}
+async function saveCustom(){
+  const y={}; document.querySelectorAll('#cp-rows div').forEach(r=>{const n=+r.querySelector('input').value, pid=r.querySelector('select').value; if(n>0) y[pid]=(y[pid]||0)+n;});
+  const t=$('custom')._target; $('custom').close();
+  const r=await act('assign_custom',{yields:y,...t}); if(r.ok) toast('Counted, and remembered for this job');
+}
+async function assignLog(id,source){if(source==='__custom') return customPlate({log_id:id}); if(source){const r=await act('assign',{log_id:id,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
+async function assignPrinter(printer,source){if(source==='__custom') return customPlate({printer}); if(source){const r=await act('assign',{printer,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
 async function rescan(){await post('api/rescan');toast('Files rescanned');}
 async function delFile(file){if(confirm(`Remove ${file}? Counts are kept.`)) await post('api/delete_file',{file});}
 async function upload(){
   const files=$('upload').files; if(!files.length){toast('Choose one or more .3mf files first');return;}
-  const fd=new FormData(); for(const f of files) fd.append('file',f,f.name);
-  $('upmsg').textContent='uploading…';
-  try{const r=await (await fetch('api/upload',{method:'POST',body:fd})).json();
-    $('upmsg').textContent=r.ok?`saved ${r.saved.length} file(s)`:'failed: '+r.error; $('upload').value='';}
-  catch(e){$('upmsg').textContent='upload failed';}
+  // In 8 MB pieces: Home Assistant's ingress refuses uploads over 16 MB, and sliced projects are often 100 MB.
+  const CH=8*1024*1024; let saved=0;
+  try{
+    for(const f of files){
+      for(let off=0;off<f.size||off===0;off+=CH){
+        $('upmsg').textContent=`uploading ${f.name}: ${Math.round(100*off/Math.max(f.size,1))}%`;
+        const q=`name=${encodeURIComponent(f.name)}&offset=${off}&total=${f.size}`;
+        const r=await (await fetch('api/upload_chunk?'+q,{method:'POST',body:f.slice(off,off+CH)})).json();
+        if(!r.ok) throw new Error(r.error);
+        if(f.size===0) break;
+      }
+      saved++;
+    }
+    $('upmsg').textContent=`saved ${saved} file(s)`; $('upload').value='';
+  }catch(e){$('upmsg').textContent='upload failed: '+e.message;}
   await load();
 }
 

@@ -1,6 +1,9 @@
 """Print tracking: which plate each printer is printing, counting finished plates' parts, manual corrections, and how
 far along each build is; plus each printer's print queue, print-time samples and the planner's data (planning.py).
-State is one JSON file in the add-on's /data."""
+State is one JSON file in the add-on's /data.
+
+Parts are counted into the shared pool ("counts", which fills the planned TMTs in order) or, when the printer is set to
+print for a project (a request, a chair not yet for a child, a wheels order), into that project's own counts."""
 import datetime as dt
 import json
 import logging
@@ -14,8 +17,17 @@ from png import alpha_mask, iou
 log = logging.getLogger("tmt.tracker")
 
 ACTIVE = {"prepare", "running", "pause", "slicing", "init"}
+NOT_TMT = "-"         # printer_project value: what this printer prints now isn't for a TMT
 IMAGE_MIN = 0.80      # outline overlap needed to accept an image match
 IMAGE_MARGIN = 0.03   # and how far it must beat the runner-up
+
+
+def job_name(task):
+    """A job name without the slicer's '_<filament>_<print time>' ending, as in Orca-style output file names:
+    '3DTMT F SEAT BACK CENTER TOP REV A_PETG_9h44m' -> '3dtmt f seat back center top rev a'."""
+    n = re.sub(r"(_[^_]*)?_(\d+d)?(\d+h)?(\d+m)?(\d+s)?$", lambda m: "" if any(m.groups()[1:]) else m.group(0),
+               (task or "").strip())
+    return n.strip().lower()
 
 
 def now():
@@ -32,6 +44,10 @@ class Tracker:
             self.st = json.loads(self.path.read_text())
         else:
             self.st = {"target": 1, "assembled": 0, "counts": {}, "printers": {}, "aliases": {}, "log": [], "next_log": 1}
+        self.st.setdefault("projects", [])
+        self.st.setdefault("printer_project", {})     # printer -> project id it prints for
+        self.st.setdefault("next_project", 1)
+        self.st.setdefault("custom", {})              # custom plates: {id: source}, e.g. a modified plate of 4 tires
 
     # ------------------------------------------------------------ plumbing
     def set_catalog(self, catalog):
@@ -54,7 +70,7 @@ class Tracker:
 
     @property
     def sources(self):
-        return {s["id"]: s for s in self.catalog["sources"]}
+        return {**{s["id"]: s for s in self.catalog["sources"]}, **self.st["custom"]}
 
     def _log(self, **entry):
         entry = {"id": self.st["next_log"], "time": now(), **entry}
@@ -62,9 +78,18 @@ class Tracker:
         self.st["log"] = (self.st["log"] + [entry])[-500:]
         return entry
 
-    def _add(self, src, sign=1):
+    def _project(self, pid):
+        return next((p for p in self.st["projects"] if p["id"] == pid), None) if pid else None
+
+    def _bucket(self, project=None):
+        """The counts a print goes into: a project's, or the shared pool's."""
+        p = self._project(project)
+        return p["counts"] if p else self.st["counts"]
+
+    def _add(self, src, sign=1, project=None):
+        counts = self._bucket(project)
         for pid, n in src["yields"].items():
-            self.st["counts"][pid] = self.st["counts"].get(pid, 0) + sign * n
+            counts[pid] = counts.get(pid, 0) + sign * n
 
     def _mask(self, thumb):
         if thumb not in self._masks:
@@ -110,6 +135,13 @@ class Tracker:
         hit = [s for s in titled if s["plate"] == plate]
         if len(hit) == 1:
             return hit[0]["id"], {"by": "title"}
+        # The job named after the plate or the one part on it (Klipper/Moonraker printers send no plate number).
+        name = job_name(task)
+        named = [s for s in srcs if name and not titled and
+                 (s.get("plate_name", "").strip().lower() == name or name in (n.lower() for n in s.get("names", [])))]
+        if named and len({json.dumps(s["yields"], sort_keys=True) for s in named}) == 1:
+            # One plate, or the same parts on several (e.g. a Bambu Studio file and its U1 copy): any one counts the same.
+            return sorted(named, key=lambda s: (not s["counts"], s["file"], s["plate"]))[0]["id"], {"by": "name"}
         if not cover or not Path(cover).exists():
             return None, {"by": "none"}
         try:
@@ -118,7 +150,7 @@ class Tracker:
             return None, {"by": "none", "error": f"cover image: {e}"}
         if len(mask) < 8:
             return None, {"by": "none", "error": "cover image is empty"}
-        scored = sorted(((iou(mask, self._mask(s["thumb"])), s["id"]) for s in (titled or srcs)
+        scored = sorted(((iou(mask, self._mask(s["thumb"])), s["id"]) for s in (titled or named or srcs)
                          if s.get("thumb") and (self.thumbs / s["thumb"]).exists()), reverse=True)
         if not scored:
             return None, {"by": "none"}
@@ -153,7 +185,10 @@ class Tracker:
             cur["start_time"] = live["start_time"]
         cur["status"] = status
         result = {"printer": printer, "status": status}
-        if cur.get("job") and status in ACTIVE and not cur.get("source"):
+        not_tmt = self.st["printer_project"].get(printer) == NOT_TMT
+        if not_tmt and cur.get("job") and not cur.get("done"):
+            cur["source"], cur["match"] = None, {"by": "none", "reason": "not for a TMT"}
+        elif cur.get("job") and status in ACTIVE and not cur.get("source"):
             # Title or remembered alias first; then the same plate as this printer's previous job; then the preview,
             # but only one that changed since the last image match (a new job can still show the old plate).
             sid, info = self.match(task, plate)
@@ -187,7 +222,9 @@ class Tracker:
         if cur.get("job") and status in ("finish", "failed") and not cur.get("done"):
             cur["done"] = True
             src = self.sources.get(cur.get("source"))
-            if status == "failed":
+            if not_tmt:
+                e = self._log(printer=printer, task=task, plate=plate, source=None, result="not tmt")
+            elif status == "failed":
                 e = self._log(printer=printer, task=task, plate=plate, source=cur.get("source"), result="failed")
                 if src:   # retry it next on this printer, as the same kind of entry
                     base = {k: v for k, v in (cur.get("took") or {}).items() if k not in ("id", "source")}
@@ -200,8 +237,10 @@ class Tracker:
             elif src is None:
                 e = self._log(printer=printer, task=task, plate=plate, source=None, result="unmatched")
             elif src["counts"]:
-                self._add(src)
-                e = self._log(printer=printer, task=task, plate=plate, source=src["id"], result="counted", yields=src["yields"])
+                project = self.st["printer_project"].get(printer) if self._project(self.st["printer_project"].get(printer)) else None
+                self._add(src, project=project)
+                e = self._log(printer=printer, task=task, plate=plate, source=src["id"], result="counted", yields=src["yields"],
+                              project=project)
             else:
                 e = self._log(printer=printer, task=task, plate=plate, source=src["id"], result="other")
             log.info("%s: %s %s", printer, e["result"], e.get("source"))
@@ -242,7 +281,7 @@ class Tracker:
         st = self.st
         pl.queue_state(st); pl.times_state(st); pl.plan_cfg(st)
         keys = ("target", "assembled", "counts", "printers", "log", "updated", "queue", "queue_skip", "queue_cfg",
-                "queue_unassigned", "bed", "times", "plan", "plan_cfg", "printer_info")
+                "queue_unassigned", "bed", "times", "plan", "plan_cfg", "printer_info", "projects", "printer_project", "custom")
         return dict({k: st.get(k) for k in keys}, plan_cfg=pl.plan_cfg_view(st), plate_times=pl.plate_times(st, self.catalog),
                     plan_data=pl.plan_data(st, self.catalog))
 
@@ -255,10 +294,14 @@ class Tracker:
                 if r.get("log") == e["id"]:
                     r["source"] = src["id"]
             if e["result"] == "counted" and e.get("source") in srcs:
-                self._add(srcs[e["source"]], -1)
+                self._add(srcs[e["source"]], -1, e.get("project"))
             e["source"] = src["id"]
             if src["counts"]:
-                self._add(src)
+                if e["result"] != "counted":
+                    e["project"] = self.st["printer_project"].get(e.get("printer"))
+                if not self._project(e.get("project")):
+                    e["project"] = None
+                self._add(src, project=e.get("project"))
                 e["result"], e["yields"] = "counted", src["yields"]
             else:
                 e["result"], e["yields"] = "other", {}
@@ -274,17 +317,197 @@ class Tracker:
         self.save()
         return {"assigned": src["id"]}
 
-    def adjust(self, part, delta):
-        self.st["counts"][part] = max(0, self.st["counts"].get(part, 0) + int(delta))
-        self._log(result="adjusted", part=part, delta=int(delta))
+    def assign_custom(self, yields, log_id=None, printer=None):
+        """A plate that isn't in any file (a modified plate): count the parts given, and remember it for this job."""
+        yields = {pid: int(n) for pid, n in (yields or {}).items() if int(n) > 0}
+        if not yields:
+            raise ValueError("pick at least one part")
+        names = {p["id"]: p["name"] for p in self.catalog["parts"]}
+        label = ", ".join(f"{n} × {names.get(pid, pid)}" for pid, n in yields.items())
+        sid = "custom:" + ",".join(f"{pid}={n}" for pid, n in sorted(yields.items()))
+        self.st["custom"][sid] = {"id": sid, "file": "", "title": "custom plate", "plate": None, "plate_name": label,
+                                  "counts": True, "group": None, "yields": yields, "thumb": None, "names": []}
+        return self.assign(sid, log_id=log_id, printer=printer)
+
+    def adjust(self, part, delta, project=None):
+        counts = self._bucket(project)
+        counts[part] = max(0, counts.get(part, 0) + int(delta))
+        self._log(result="adjusted", part=part, delta=int(delta), project=project if self._project(project) else None)
         pl.reconcile(self.st, self.catalog)
         self.save()
-        return {"part": part, "count": self.st["counts"][part]}
+        return {"part": part, "count": counts[part]}
+
+    # ------------------------------------------------------------ projects
+    def build_needs(self):
+        """What one TMT needs: {part id: qty} (one option of each alternative: the first)."""
+        needs = {p["id"]: p["qty"] for p in self.catalog["parts"] if not p["optional"] and not p.get("alt")}
+        for alt in self.catalog.get("alternatives", []):
+            if alt["options"]:
+                for pid, q in alt["options"][0]["parts"].items():
+                    needs[pid] = q * alt.get("qty", 1)
+        return needs
+
+    def project_needs(self, p):
+        if p["kind"] == "order":
+            return {pid: int(q) for pid, q in (p.get("needs") or {}).items() if int(q) > 0}
+        needs = self.build_needs()
+        # Either option of an alternative counts: use whichever this project has more of.
+        c = p["counts"]
+        for alt in self.catalog.get("alternatives", []):
+            if len(alt["options"]) > 1:
+                best = max(alt["options"], key=lambda o: min(c.get(pid, 0) / q for pid, q in o["parts"].items()))
+                for o in alt["options"]:
+                    for pid in o["parts"]:
+                        needs.pop(pid, None)
+                for pid, q in best["parts"].items():
+                    needs[pid] = q * alt.get("qty", 1)
+        return needs
+
+    def project_summaries(self):
+        out = []
+        for p in self.st["projects"]:
+            needs, c = self.project_needs(p), p["counts"]
+            got = sum(min(q, c.get(pid, 0)) for pid, q in needs.items())
+            missing = {pid: q - c.get(pid, 0) for pid, q in needs.items() if c.get(pid, 0) < q}
+            out.append({"id": p["id"], "pieces": got, "of": sum(needs.values()), "missing": missing, "needs": needs,
+                        "complete": bool(needs) and not missing})
+        return out
+
+    def project_add(self, name, kind="build", needs=None):
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("give the project a name")
+        p = {"id": f"p{self.st['next_project']}", "name": name, "kind": "order" if kind == "order" else "build",
+             "needs": {k: int(v) for k, v in (needs or {}).items() if int(v) > 0}, "counts": {}, "created": now(),
+             "done": False}
+        self.st["next_project"] += 1
+        self.st["projects"].append(p)
+        self.save()
+        return {"project": p["id"]}
+
+    def project_bom(self, project, bom, colors, unmatched):
+        """A build's BOM: the color of each part (by color, not brand), on a project; a new project when none given."""
+        if not project:
+            name = " ".join(x for x in (f"#{bom['request']}" if bom.get("request") else "", bom.get("name") or "") if x)
+            project = self.project_add(name or "BOM", "build")["project"]
+        p = self._project(project)
+        if not p:
+            raise ValueError("no such project")
+        p["colors"] = colors
+        p["bom"] = {k: bom.get(k) for k in ("name", "request", "date", "items")} | {"unmatched": unmatched}
+        self._log(result="bom imported", project=project, pieces=len(colors))
+        self.save()
+        return {"project": project, "colored": len(colors), "unmatched": unmatched}
+
+    def project_color(self, project, part, color=None, material=None):
+        """Set (or, with no color, clear) one part's color on a project."""
+        p = self._project(project)
+        if not p:
+            raise ValueError("no such project")
+        colors = p.setdefault("colors", {})
+        if (color or "").strip():
+            colors[part] = {"color": color.strip(), "material": (material or "").strip() or (colors.get(part) or {}).get("material"),
+                            "item": "set by you"}
+        else:
+            colors.pop(part, None)
+        self.save()
+        return {"part": part, "color": (colors.get(part) or {}).get("color")}
+
+    def project_update(self, project, name=None, needs=None, done=None):
+        p = self._project(project)
+        if not p:
+            raise ValueError("no such project")
+        if name is not None and name.strip():
+            p["name"] = name.strip()
+        if needs is not None:
+            p["needs"] = {k: int(v) for k, v in needs.items() if int(v) > 0}
+        if done is not None:
+            p["done"], p["done_at"] = bool(done), (now() if done else None)
+            if done:
+                for pr, pid in list(self.st["printer_project"].items()):
+                    if pid == project:
+                        self.st["printer_project"][pr] = None
+            self._log(result="project done" if done else "project reopened", project=project)
+        self.save()
+        return {"project": project}
+
+    def project_delete(self, project):
+        """Remove a project; its printed parts go back into the pool."""
+        p = self._project(project)
+        if not p:
+            raise ValueError("no such project")
+        for pid, n in p["counts"].items():
+            self.st["counts"][pid] = self.st["counts"].get(pid, 0) + n
+        self.st["projects"].remove(p)
+        for e in self.st["log"]:
+            if e.get("project") == project:
+                e["project"] = None
+        for pr, pid in list(self.st["printer_project"].items()):
+            if pid == project:
+                self.st["printer_project"][pr] = None
+        self.save()
+        return {"deleted": project}
+
+    def printer_project(self, printer, project=None):
+        if project and project != NOT_TMT and not self._project(project):
+            raise ValueError("no such project")
+        self.st["printer_project"][printer] = project or None
+        self.save()
+        return {"printer": printer, "project": project or None}
+
+    def move_print(self, log_id, project=None):
+        """Count a finished print toward another project (or the pool)."""
+        e = next(x for x in self.st["log"] if x["id"] == int(log_id))
+        if project == NOT_TMT:
+            if e["result"] == "counted" and e.get("source") in self.sources:
+                self._add(self.sources[e["source"]], -1, e.get("project"))
+            e["result"], e["project"] = "not tmt", None
+            self.save()
+            return {"moved": e["id"], "project": None}
+        project = project if self._project(project) else None
+        if e["result"] == "counted" and e.get("source") in self.sources and e.get("project") != project:
+            src = self.sources[e["source"]]
+            self._add(src, -1, e.get("project"))
+            self._add(src, 1, project)
+        e["project"] = project
+        self.save()
+        return {"moved": e["id"], "project": project}
+
+    def take_from_pool(self, project, part, count=None):
+        """Move one part from the spares into a project: count pieces, or as many as it still needs."""
+        p = self._project(project)
+        if not p:
+            raise ValueError("no such project")
+        want = int(count) if count else self.project_needs(p).get(part, 0) - p["counts"].get(part, 0)
+        n = max(0, min(want, self.st["counts"].get(part, 0)))
+        if n:
+            self.st["counts"][part] -= n
+            p["counts"][part] = p["counts"].get(part, 0) + n
+            self._log(result="moved from spares", project=project, pieces=n, part=part)
+            self.save()
+        return {"moved": n}
+
+    def fill_from_pool(self, project):
+        """Move parts the project still needs from the pool into it."""
+        p = self._project(project)
+        if not p:
+            raise ValueError("no such project")
+        moved = 0
+        for pid, q in self.project_needs(p).items():
+            n = min(q - p["counts"].get(pid, 0), self.st["counts"].get(pid, 0))
+            if n > 0:
+                self.st["counts"][pid] -= n
+                p["counts"][pid] = p["counts"].get(pid, 0) + n
+                moved += n
+        if moved:
+            self._log(result="moved from spares", project=project, pieces=moved)
+        self.save()
+        return {"moved": moved}
 
     def undo(self, log_id):
         e = next(x for x in self.st["log"] if x["id"] == int(log_id))
         if e["result"] == "counted" and e.get("source") in self.sources:
-            self._add(self.sources[e["source"]], -1)
+            self._add(self.sources[e["source"]], -1, e.get("project"))
             e["result"] = "undone"
         pl.reconcile(self.st, self.catalog)
         self.save()
