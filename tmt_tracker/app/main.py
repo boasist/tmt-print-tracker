@@ -17,7 +17,7 @@ import catalog as catalog_mod
 from ha import HomeAssistant
 from tracker import Tracker
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
@@ -248,7 +248,7 @@ class App:
         cmd = a.pop("cmd", "")
         fn = {"assign": self.tracker.assign, "adjust": self.tracker.adjust, "undo": self.tracker.undo,
               "target": self.tracker.target, "assembled": self.tracker.assembled,
-              "import_counts": self.tracker.import_counts}.get(cmd)
+              "import_counts": self.tracker.import_counts, "assign_custom": self.tracker.assign_custom}.get(cmd)
         if not fn and cmd in Tracker.COMMANDS:
             fn = lambda **kw: self.tracker.command(cmd, **kw)
         if not fn:

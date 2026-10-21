@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.1
+
+- **Custom plates**: for a plate you combined or changed (say two wheel rims and a bolt cap on one plate), choose
+  **custom plate: pick the parts…** in a plate menu, or **change** on a printer card, and give the parts and how many.
+  The print counts those parts, the plate is remembered for reprints (and recognised by its preview picture), and the
+  queue and planner use it, on the printer it was printed on.
+- Fix: a remembered plate is now per printer. Print profiles (MakerWorld's especially) can share a name across
+  printers while numbering their plates differently, so one printer's plate 15 could show up as another printer's.
+  Existing remembered plates move to the printer they came from.
+- A job recognised by a remembered plate or as a reprint is checked again when the printer's preview arrives; if the
+  picture clearly shows a different plate, it follows the picture. A stale preview (the previous job's picture at the
+  start of a print) is recognised by the picture itself and ignored.
+
 ## 0.3.0
 
 - **Print queue per printer**: the plates the planned TMTs still need, each on a printer that has the plate's filament

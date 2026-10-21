@@ -27,7 +27,17 @@ In this order:
    Handy, whose job name is the print profile's name.
 
 If a print isn't recognised, the printer card and the history row get a **which plate is this?** menu. Your choice is
-counted and remembered.
+counted and remembered for that printer (by job name and plate number). A recognised plate has a **change** button on
+its printer card. Later, when the printer's preview clearly shows a different plate than the one remembered, the
+picture wins.
+
+### Custom plates
+
+For a plate you combined or changed, for example two wheel rims and a bolt cap on one plate, choose **custom plate:
+pick the parts…** in the plate menu and give the parts and how many. The print counts exactly those parts. The custom
+plate is remembered for reprints (by job name and plate number, and by the printer's preview picture of it), shows up
+in the menus as **Custom: …**, and the queue and planner use it like any plate, on the printer it was printed on. A
+custom plate that makes more of a part than any of the design file's plates is the one queued for that part.
 
 ## The dashboard
 

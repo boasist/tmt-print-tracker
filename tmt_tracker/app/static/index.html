@@ -110,6 +110,12 @@ dialog.pop::backdrop{background:rgba(0,0,0,.55)}
   </section>
 </main>
 <div class="toast" id="toast"></div>
+<dialog class="pop" id="custom" style="max-width:480px">
+  <div class="pop-head"><span class="name">Custom plate</span><span class="muted">which parts, and how many</span></div>
+  <div class="pop-body" style="gap:8px"><div id="cp-rows"></div>
+    <div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="small" onclick="addCustomRow()">+ another part</button>
+      <button class="small" onclick="$('custom').close()">cancel</button><button class="small primary" onclick="saveCustom()">count these</button></div></div>
+</dialog>
 <dialog class="pop" id="pop">
   <div class="pop-head"><span class="name" id="pop-name"></span><span id="pop-status"></span><button onclick="$('pop').close()">Close</button></div>
   <div class="pop-body"><div class="cam" id="pop-cam"></div><div class="specs" id="pop-specs"></div></div>
@@ -138,8 +144,10 @@ async function post(path,body){
 const act=(cmd,data={})=>post('api/action',{cmd,...data});
 
 const cat=()=>D.catalog;
-const srcById=id=>cat().sources.find(s=>s.id===id);
-const srcLabel=s=>s?(s.plate_name?s.plate_name+' · ':'')+(s.title||s.file)+' · plate '+s.plate:'';
+// Catalog plates, plus custom plates (ones you combined or changed; kept in the state).
+const customs=()=>(D&&D.state.custom_sources)||[];
+const srcById=id=>cat().sources.find(s=>s.id===id)||customs().find(s=>s.id===id);
+const srcLabel=s=>!s?'':s.custom?s.plate_name+' · custom plate':(s.plate_name?s.plate_name+' · ':'')+(s.title||s.file)+' · plate '+s.plate;
 const covered=(count,qty,k)=>Math.max(0,Math.min(qty,count-(k-1)*qty));
 
 function nowPrinting(){
@@ -183,9 +191,10 @@ function renderNotices(){
   setHTML('notices',n.join(''));
 }
 
-function assignSelect(onchange){
+function assignSelect(onchange,first='which plate is this?'){
+  const custom=customs().map(s=>`<option value="${esc(s.id)}">${esc('Custom: '+s.plate_name)}</option>`).join('');
   const opts=cat().sources.map(s=>`<option value="${esc(s.id)}">${esc((s.counts?'':'(not counted) ')+srcLabel(s))}</option>`).join('');
-  return `<select onchange="${onchange}"><option value="">which plate is this?</option>${opts}</select>`;
+  return `<select onchange="${onchange}"><option value="">${esc(first)}</option><option value="__custom">custom plate: pick the parts…</option>${custom}${opts}</select>`;
 }
 
 function renderPrinters(){
@@ -196,13 +205,14 @@ function renderPrinters(){
     const img=s&&s.thumb?'thumbs/'+s.thumb:`covers/${p.key}.png?t=${encodeURIComponent(D.state.updated||'')}`;
     let what;
     if(active||status==='finish'||status==='failed'){
-      what=s?`<div>${esc(srcLabel(s))}</div>${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
+      what=s&&changing[p.key]?`<div>${assignSelect(`assignPrinter('${p.key}',this.value)`,'this plate is…')} <button class="small" onclick="changing['${p.key}']=false;renderPrinters()">cancel</button></div>${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
+        :s?`<div>${esc(srcLabel(s))} <button class="small" title="It's a different or changed plate" onclick="changing['${p.key}']=true;renderPrinters()">change</button></div>${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
         :`<div>${esc(L.task_name||cur.task||'')} · plate ${esc(cur.plate??'?')}</div><div><span class="tag warn">not recognised</span> ${assignSelect(`assignPrinter('${p.key}',this.value)`)}</div>`;
     } else what='<div class="muted">idle</div>';
     const bed=((D.state.bed||{})[p.key]||{}).state, q=(D.state.queue||{})[p.key]||[], ns=q.length&&srcById(q[0].source);
     if(bed==='needs_clearing'&&!active) what+=`<div style="margin-top:6px"><span class="tag warn">plate needs clearing</span> <button class="small primary" onclick="bedClear('${p.key}')">Plate is clear</button></div>`;
     else if(bed==='clear'&&!active) what+='<div style="margin-top:6px"><span class="tag ok">plate clear</span></div>';
-    if(ns) what+=`<div class="muted" style="margin-top:4px">Next: ${esc((ns.plate_name||ns.title)+' · plate '+ns.plate)}</div>`;
+    if(ns) what+=`<div class="muted" style="margin-top:4px">Next: ${esc((ns.plate_name||ns.title)+(ns.custom?' · custom plate':' · plate '+ns.plate))}</div>`;
     const tag=status==='finish'?'ok':status==='failed'?'bad':active?'now':'';
     return `<div class="card printer" title="Camera and details" onclick="if(!event.target.closest('select,button'))openPrinter('${p.key}')"><img src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
       <div><div class="name">${esc(p.name)} <span class="tag ${tag}">${esc(status)}</span><span class="more">details ›</span></div>${what}
@@ -277,7 +287,7 @@ function renderFiles(){
 // here by clicking), and on/off. Plates are planned from what the planned TMTs still need, or come from a plan.
 const hrs=h=>h>=1?h.toFixed(1)+' h':Math.round(h*60)+' min';
 function renderQueues(){
-  const st=D.state, Q=st.queue||{}, cfg=st.queue_cfg||{}, srcs=Object.fromEntries(cat().sources.map(s=>[s.id,s]));
+  const st=D.state, Q=st.queue||{}, cfg=st.queue_cfg||{}, srcs=Object.fromEntries([...cat().sources,...customs()].map(s=>[s.id,s]));
   const matOf=pid=>((cat().parts.find(p=>p.id===pid)||{}).material||'').toUpperCase();
   const mats=[...new Set(cat().parts.map(p=>(p.material||'').toUpperCase()).filter(Boolean))];
   const pm=s=>[...new Set(Object.keys(s.yields).map(matOf).filter(Boolean))];
@@ -290,7 +300,7 @@ function renderQueues(){
     const why=t.basis==='printed'?`Printed on ${pname(pk)} in ${hrs(t.h)}${t.n>1?` (median of ${t.n})`:''}`
       :t.basis==='estimate'?`Printing on ${pname(pk)} now; slicer estimate ${hrs(t.est_h)}`:`From its mirror twin ${t.twin} on ${pname(pk)}`;
     return `<span title="${esc(why+(t.filament?' · '+t.filament:'')+(noz?' · nozzle '+noz:''))}">· ${t.basis==='printed'?'':'≈'}${hrs(t.h)}</span>`;};
-  const addOpts=cat().sources.filter(s=>s.counts).map(s=>`<option value="${esc(s.id)}">${esc(label(s)+' · plate '+s.plate)}</option>`).join('');
+  const addOpts=customs().map(s=>`<option value="${esc(s.id)}">${esc('Custom: '+s.plate_name)}</option>`).join('')+cat().sources.filter(s=>s.counts).map(s=>`<option value="${esc(s.id)}">${esc(label(s)+' · plate '+s.plate)}</option>`).join('');
   if(!D.printers.length){setHTML('queues','');return;}
   setHTML('queues',D.printers.map(p=>{
     const q=Q[p.key]||[], c=cfg[p.key]||{}, on=c.on!==false;
@@ -304,7 +314,7 @@ function renderQueues(){
       const when=e.plan_start?` · <span title="Planned start">start ≈ ${esc(doneAt(e.plan_start))}</span>`:'';
       const tags=(i===0?'<span class="tag now">next</span>':'')+(e.retry?'<span class="tag warn">retry</span>':'')+(!e.auto?'<span class="tag">added by you</span>':'')+(e.pinned&&!e.planned?'<span class="tag">moved here</span>':'');
       return `${div}<li class="${i===0?'first':''}"><img src="${s.thumb?'thumbs/'+esc(s.thumb):''}" alt="" onerror="this.style.visibility='hidden'">
-        <div><div><b>${esc(label(s))}</b></div><div class="muted" style="font-size:13px">plate ${esc(s.plate)} · ${esc(pm(s).join(', '))} ${timeTag(p.key,e.source)}${when} ${tags}</div></div>
+        <div><div><b>${esc(label(s))}</b></div><div class="muted" style="font-size:13px">${s.custom?'custom plate':'plate '+esc(s.plate)} · ${esc(pm(s).join(', '))} ${timeTag(p.key,e.source)}${when} ${tags}</div></div>
         <span class="qbtns"><button class="small" title="Earlier" onclick="qMove('${e.id}',-1)"${i===0?' disabled':''}>↑</button><button class="small" title="Later" onclick="qMove('${e.id}',1)"${i===q.length-1?' disabled':''}>↓</button>${
         others.map(o=>`<button class="small" title="Move to ${esc(o.name)}" onclick="qSend('${e.id}','${o.key}')">→ ${esc(o.name)}</button>`).join('')}<button class="small" title="${e.auto?'Skip this plate':'Remove'}" onclick="qRemove('${e.id}',${!!e.auto})">✕</button></span></li>`;}).join('');
     return `<div class="card"><div class="qhead"><b>${esc(p.name)}</b><span class="muted">${q.length} plate${q.length===1?'':'s'}${known.length?` · ${hrs(total)}${untimed?` + ${untimed} not timed`:''}`:''}</span>
@@ -499,8 +509,25 @@ async function adjust(part,delta){const r=await act('adjust',{part,delta}); if(r
 async function setTarget(d){await act('target',{count:Math.max(1,(D.state.target||1)+d)});}
 async function assembled(n){if(confirm(`Mark TMT #${n} as assembled? Its parts come out of the printed pool.`)){const r=await act('assembled'); if(r.ok) toast(`TMT #${n} assembled`);}}
 async function undo(id){if(confirm('Take this print back out of the counts?')) await act('undo',{log_id:id});}
-async function assignLog(id,source){if(source){const r=await act('assign',{log_id:id,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
-async function assignPrinter(printer,source){if(source){const r=await act('assign',{printer,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
+const changing={};   // printer -> its "change plate" menu is open
+async function assignLog(id,source){if(source==='__custom') return customPlate({log_id:id}); if(source){const r=await act('assign',{log_id:id,source}); if(r.ok) toast('Assigned, and remembered for next time');}}
+async function assignPrinter(printer,source){
+  if(source==='__custom') return customPlate({printer});
+  if(source){changing[printer]=false; const r=await act('assign',{printer,source}); if(r.ok) toast('Assigned, and remembered for next time');}
+}
+// A plate you combined or changed: pick the parts and how many; it's counted, remembered for reprints, and kept as a
+// custom plate for the queue and planner.
+function customPlate(target){const d=$('custom'); d._target=target; $('cp-rows').innerHTML=''; addCustomRow(); d.showModal();}
+function addCustomRow(){
+  const opts=cat().parts.map(p=>`<option value="${esc(p.id)}">${esc((p.code?p.code+' ':'')+p.name)}</option>`).join('');
+  $('cp-rows').insertAdjacentHTML('beforeend',`<div style="display:flex;gap:6px;margin:4px 0"><input type="number" min="1" value="1" style="width:70px"><select style="flex:1;min-width:0">${opts}</select></div>`);
+}
+async function saveCustom(){
+  const y={}; document.querySelectorAll('#cp-rows div').forEach(r=>{const n=+r.querySelector('input').value, pid=r.querySelector('select').value; if(n>0) y[pid]=(y[pid]||0)+n;});
+  const t=$('custom')._target; $('custom').close();
+  if(t.printer) changing[t.printer]=false;
+  const r=await act('assign_custom',{yields:y,...t}); if(r.ok) toast(`Counted as ${r.label}, and remembered for reprints`);
+}
 async function rescan(){await post('api/rescan');toast('Files rescanned');}
 async function delFile(file){if(confirm(`Remove ${file}? Counts are kept.`)) await post('api/delete_file',{file});}
 async function upload(){

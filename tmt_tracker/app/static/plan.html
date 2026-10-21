@@ -124,7 +124,7 @@ async function loadState(){
   if(!draft) draft=JSON.parse(JSON.stringify(st.plan_cfg||{setups:{}}));
   render();
 }
-const src=id=>cat.sources.find(s=>s.id===id);
+const src=id=>cat.sources.find(s=>s.id===id)||((st&&st.custom_sources)||[]).find(s=>s.id===id);   // custom plates live in the state
 const label=s=>s?(s.plate_name||s.title):'?';
 const matsOf=s=>[...new Set(Object.keys(s.yields).map(pid=>((cat.parts.find(p=>p.id===pid)||{}).material||'').toUpperCase()).filter(Boolean))];
 const allMats=()=>[...new Set(cat.parts.map(p=>(p.material||'').toUpperCase()).filter(Boolean))];

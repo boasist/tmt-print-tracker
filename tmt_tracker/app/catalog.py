@@ -122,7 +122,8 @@ def build(profile, files_dir, thumbs_dir):
     files_dir, thumbs_dir = Path(files_dir), Path(thumbs_dir)
     thumbs_dir.mkdir(parents=True, exist_ok=True)
     for old in thumbs_dir.glob("*.png"):
-        old.unlink()
+        if not old.name.startswith("custom-"):   # custom plates' pictures (tracker.assign_custom) stay
+            old.unlink()
     namer = PartNamer(profile)
     wanted = {key: (f.get("title") or "").strip().lower() for key, f in profile["files"].items()}
     counting = {}   # (file key, plate) -> plate rule

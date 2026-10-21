@@ -228,7 +228,25 @@ def queue_state(st):
 
 
 def plate_label(s):
+    if s.get("custom"):
+        return f"{s['plate_name']} (custom plate)"
     return f"{s['plate_name'] or s['title']} · plate {s['plate']}"
+
+
+def migrate_aliases(st):
+    """Remembered plates are kept per printer ("printer|task|plate"): a print profile's name (the task) can be shared by
+    every printer's version of the profile, and each version numbers its plates differently. An old shared
+    "task|plate" alias moves to the printer(s) whose logged prints it came from."""
+    prs = set(st.get("printers") or {})
+    for key in [k for k in st.get("aliases", {}) if k.split("|", 1)[0] not in prs]:
+        sid = st["aliases"][key]
+        task, _, plate = key.rpartition("|")
+        made_on = {e["printer"] for e in st["log"] if e.get("printer") and e.get("task") == task
+                   and str(e.get("plate")) == plate and e.get("source") == sid}
+        if made_on:
+            for pr in made_on:
+                st["aliases"].setdefault(f"{pr}|{key}", sid)
+            del st["aliases"][key]
 
 
 def plate_materials(cat, s):
