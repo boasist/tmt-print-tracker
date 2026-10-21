@@ -385,6 +385,34 @@ class Tracker:
         self.save()
         return {"project": p["id"]}
 
+    def project_bom(self, project, bom, colors, unmatched):
+        """A build's BOM: the color of each part (by color, not brand), on a project; a new project when none given."""
+        if not project:
+            name = " ".join(x for x in (f"#{bom['request']}" if bom.get("request") else "", bom.get("name") or "") if x)
+            project = self.project_add(name or "BOM", "build")["project"]
+        p = self._project(project)
+        if not p:
+            raise ValueError("no such project")
+        p["colors"] = colors
+        p["bom"] = {k: bom.get(k) for k in ("name", "request", "date", "items")} | {"unmatched": unmatched}
+        self._log(result="bom imported", project=project, pieces=len(colors))
+        self.save()
+        return {"project": project, "colored": len(colors), "unmatched": unmatched}
+
+    def project_color(self, project, part, color=None, material=None):
+        """Set (or, with no color, clear) one part's color on a project."""
+        p = self._project(project)
+        if not p:
+            raise ValueError("no such project")
+        colors = p.setdefault("colors", {})
+        if (color or "").strip():
+            colors[part] = {"color": color.strip(), "material": (material or "").strip() or (colors.get(part) or {}).get("material"),
+                            "item": "set by you"}
+        else:
+            colors.pop(part, None)
+        self.save()
+        return {"part": part, "color": (colors.get(part) or {}).get("color")}
+
     def project_update(self, project, name=None, needs=None, done=None):
         p = self._project(project)
         if not p:

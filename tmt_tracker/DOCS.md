@@ -53,6 +53,16 @@ counted and remembered.
 - **Recent prints**: counted, failed, not recognised (assign) or not a TMT plate; **undo** takes a print back out.
 - **Files**: the uploaded 3MF files, what each is used as, and the build profile in use.
 
+## Colors from a BOM
+
+The build page on 3d-mobility.org makes a Bill of Materials PDF with each part's filament. Under Projects, **New
+project → import a BOM (PDF)** makes a TMT project named after it, or **import BOM** on a project adds the colors to
+it. Only the color is used ("Numakers — Atomic Pink" is Atomic Pink), with the filament type from the BOM's filament
+summary. BOM items are matched to parts by name (CONNECTORS, BUCKLES AND SLIDES and HARNESS AND STRAPS by part
+group); items that match no part are listed, and you can click any part's color in the project's parts list to set
+it. **Plates by color** then lists the plates the project still needs, grouped by color, and **print by color** prints
+that list.
+
 ## Print queue
 
 Each printer has a list of plates to print next; the first is **next**.

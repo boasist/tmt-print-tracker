@@ -13,12 +13,13 @@ from pathlib import Path
 
 from aiohttp import ClientSession, web
 
+import bom as bom_mod
 import catalog as catalog_mod
 from ha import HomeAssistant
 from printers import Printer
 from tracker import Tracker
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
@@ -237,7 +238,7 @@ class App:
               "project_update": self.tracker.project_update, "project_delete": self.tracker.project_delete,
               "printer_project": self.tracker.printer_project, "move_print": self.tracker.move_print,
               "fill_from_pool": self.tracker.fill_from_pool, "assign_custom": self.tracker.assign_custom,
-              "take_from_pool": self.tracker.take_from_pool}.get(cmd)
+              "take_from_pool": self.tracker.take_from_pool, "project_color": self.tracker.project_color}.get(cmd)
         if not fn and cmd in Tracker.COMMANDS:
             fn = lambda **kw: self.tracker.command(cmd, **kw)
         if not fn:
@@ -387,6 +388,40 @@ class App:
         await self.rematch()
         return web.json_response({"ok": True, "saved": [name], "missing": self.catalog.get("missing")})
 
+    async def h_bom_chunk(self, request):
+        """A BOM PDF from the 3d-mobility.org build page, in pieces like h_upload_chunk (?offset=&total=&project=):
+        the parts' colors go on the project, or on a new one named after the BOM."""
+        q = request.query
+        offset, total = int(q.get("offset", 0)), int(q.get("total", 0))
+        tmp = DATA / "bom_upload.pdf"
+        if offset == 0:
+            tmp.unlink(missing_ok=True)
+        elif not tmp.exists() or tmp.stat().st_size != offset:
+            return web.json_response({"ok": False, "error": "upload out of order; start again"})
+        with open(tmp, "ab") as f:
+            async for chunk in request.content.iter_chunked(1 << 20):
+                f.write(chunk)
+        size = tmp.stat().st_size
+        if size < total:
+            return web.json_response({"ok": True, "received": size})
+        try:
+            if size != total:
+                raise ValueError(f"got {size} bytes, expected {total}")
+            text = await asyncio.get_running_loop().run_in_executor(None, bom_mod.pdf_text, tmp)
+            bom = bom_mod.parse(text)
+            if not bom["items"]:
+                raise ValueError("no printed parts found; is this a Bill of Materials from the build page?")
+            async with self.lock:
+                colors, unmatched = bom_mod.match(bom["items"], self.catalog)
+                res = self.tracker.project_bom(q.get("project") or None, bom, colors, unmatched)
+        except Exception as e:
+            log.warning("BOM import: %s", e)
+            return web.json_response({"ok": False, "error": str(e)})
+        finally:
+            tmp.unlink(missing_ok=True)
+        log.info("BOM %s: %d parts colored, not matched: %s", bom.get("name"), res["colored"], ", ".join(res["unmatched"]) or "none")
+        return web.json_response({"ok": True, **res})
+
     async def h_delete_file(self, request):
         name = Path((await request.json()).get("file", "")).name
         path = FILES / name
@@ -433,7 +468,8 @@ class App:
                         web.post("/api/camera/{key}/hls", self.h_cam_hls), web.get("/api/camera/{key}/still", self.h_cam_still),
                         web.post("/api/camera/session/{sid}/ping", self.h_cam_ping),
                         web.post("/api/camera/session/{sid}/close", self.h_cam_close),
-                        web.post("/api/upload", self.h_upload), web.post("/api/upload_chunk", self.h_upload_chunk), web.post("/api/delete_file", self.h_delete_file),
+                        web.post("/api/upload", self.h_upload), web.post("/api/upload_chunk", self.h_upload_chunk),
+                        web.post("/api/bom_chunk", self.h_bom_chunk), web.post("/api/delete_file", self.h_delete_file),
                         web.post("/api/rescan", self.h_rescan),
                         web.get("/thumbs/{name}", self.static_from(DATA / "thumbs")),
                         web.get("/covers/{name}", self.static_from(DATA / "covers"))])

@@ -118,6 +118,7 @@ dialog.pop::backdrop{background:rgba(0,0,0,.55)}
         <label class="muted" style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="np-spares"> take what it needs from the spare parts</label>
         <button class="primary" onclick="newProject()">Create</button>
       </div>
+      <div style="margin-top:10px" class="muted">Or <button class="small" onclick="importBom('')">import a BOM (PDF)</button> from the build page: a new TMT project named after it, with each part's color for planning plates by color.</div>
       <div id="np-order" style="display:none;margin-top:10px">
         <div class="muted">How many of each part this order needs. Fill in one TMT's worth of a group: <select id="np-group"></select> <button class="small" onclick="fillGroup()">fill</button> <button class="small" onclick="clearOrder()">clear</button></div>
         <div class="order-parts" id="np-parts"></div>
@@ -238,7 +239,7 @@ function renderPrinters(){
     const notTmt=(D.state.printer_project||{})[p.key]==='-';
     if(notTmt&&(active||status==='finish'||status==='failed')) what=`<div class="clip" title="${esc(L.task_name||cur.task||'')}">${esc(L.task_name||cur.task||'')}</div><div class="muted">not for a TMT, not counted</div>`;
     else if(active||status==='finish'||status==='failed'){
-      what=s?`<div class="clip" title="${esc(srcLabel(s))}">${esc(s.plate_name||'plate '+s.plate)} <span class="muted">· plate ${esc(s.plate)}</span></div>${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
+      what=s?`<div class="clip" title="${esc(srcLabel(s))}">${esc(s.plate_name||'plate '+s.plate)} <span class="muted">· plate ${esc(s.plate)}</span></div>${plateColors(p.key,s)}${whenLine(status,L.end_time,L.remaining_time,s.counts)}`
         :`<div class="clip" title="${esc(L.task_name||cur.task||'')}">${esc(L.task_name||cur.task||'')}${cur.plate!=null?' · plate '+esc(cur.plate):''}</div><div><span class="tag warn">not recognised</span></div><div>${assignSelect(`assignPrinter('${p.key}',this.value)`)}</div>`;
     } else what='<div class="muted">idle</div>';
     const bed=((D.state.bed||{})[p.key]||{}).state, q=(D.state.queue||{})[p.key]||[], ns=q.length&&srcById(q[0].source);
@@ -296,7 +297,7 @@ function renderHist(){
   if(!rows.length){setHTML('hist','<tr><td class="muted">No finished prints yet.</td></tr>');return;}
   const t=s=>new Date(s).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
   const res=r=>({counted:'<span class="tag ok">counted</span>',failed:'<span class="tag bad">failed</span>',unmatched:'<span class="tag warn">not recognised</span>',
-    other:'<span class="tag">not a TMT plate</span>','not tmt':'<span class="tag">not for a TMT</span>','moved from spares':'<span class="tag">moved from spares</span>','project done':'<span class="tag ok">project done</span>','project reopened':'<span class="tag">project reopened</span>',imported:'<span class="tag">imported</span>',undone:'<span class="tag">undone</span>',adjusted:'<span class="tag">adjusted</span>',assembled:'<span class="tag ok">assembled</span>'}[r]||esc(r));
+    other:'<span class="tag">not a TMT plate</span>','not tmt':'<span class="tag">not for a TMT</span>','moved from spares':'<span class="tag">moved from spares</span>','project done':'<span class="tag ok">project done</span>','project reopened':'<span class="tag">project reopened</span>','bom imported':'<span class="tag">BOM imported</span>',imported:'<span class="tag">imported</span>',undone:'<span class="tag">undone</span>',adjusted:'<span class="tag">adjusted</span>',assembled:'<span class="tag ok">assembled</span>'}[r]||esc(r));
   const pname=id=>(cat().parts.find(p=>p.id===id)||{}).name||id;
   setHTML('hist','<tr><th>When</th><th>Printer</th><th>What</th><th>Result</th><th>For</th><th></th></tr>'+rows.map(e=>{
     const s=srcById(e.source);
@@ -316,7 +317,80 @@ function renderFiles(){
     <td><button class="small" onclick="delFile('${esc(x.file).replace(/'/g,"\\'")}')">remove</button></td></tr>`).join(''):'<tr><td class="muted">No 3MF files yet.</td></tr>');
 }
 
-const openParts={};
+const openParts={}, openColors={}, colorFile={};
+// A BOM color ("Atomic Pink", "Mint Green") as a CSS color for the dot next to it: the whole name if CSS knows it,
+// else its last word. The name is what counts; the dot is only a hint.
+function colorDot(name){
+  const n=String(name||'').toLowerCase().replace(/[^a-z]/g,''), w=String(name||'').toLowerCase().split(/\s+/).pop();
+  const css=CSS.supports('color',n)?n:CSS.supports('color',w)?w:'';
+  return css?`<span class="swatch" style="background:${css}"></span>`:'';
+}
+// The colors the printer's project wants for the plate it's printing.
+function plateColors(key,s){
+  const p=(D.state.projects||[]).find(x=>x.id===(D.state.printer_project||{})[key]); if(!p||!p.colors) return '';
+  const cols=[...new Set(Object.keys(s.yields||{}).map(pid=>colorOf(p,pid)).filter(Boolean))];
+  return cols.length?`<div class="clip">${cols.map(c=>colorDot(c)+esc(c)).join(' + ')} <span class="muted">for ${esc(p.name)}</span></div>`:'';
+}
+const colorOf=(p,pid)=>((p.colors||{})[pid]||{}).color||'';
+const colorTag=(p,pid)=>{const c=(p.colors||{})[pid]; return c?`${colorDot(c.color)}${esc(c.color)}${c.material?` <span class="muted">${esc(c.material)}</span>`:''}`:'<span class="muted">no color</span>';};
+// The plates that print what a project still needs, grouped by the colors on the plate (a multi-color plate, e.g.
+// on a U1, is its own group). How many times: enough for the part it has least of.
+function colorPlan(p,x,file){
+  const groups={};
+  for(const s of cat().sources.filter(s=>s.counts&&(!file||s.file===file))){
+    const need=Object.keys(s.yields).filter(pid=>(x.missing||{})[pid]>0); if(!need.length) continue;
+    const cols=[...new Set(Object.keys(s.yields).map(pid=>colorOf(p,pid)||'no color'))].sort();
+    const times=Math.max(...need.map(pid=>Math.ceil(x.missing[pid]/s.yields[pid])));
+    (groups[cols.join(' + ')]=groups[cols.join(' + ')]||[]).push({s,need,times});
+  }
+  return Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0]));
+}
+function planFiles(x){return [...new Set(cat().sources.filter(s=>s.counts&&Object.keys(s.yields).some(pid=>(x.missing||{})[pid]>0)).map(s=>s.file))].sort();}
+function colorPlanHTML(p,x){
+  const files=planFiles(x), file=files.includes(colorFile[p.id])?colorFile[p.id]:'';
+  const pname=id=>(cat().parts.find(q=>q.id===id)||{}).name||id;
+  const plan=colorPlan(p,x,file);
+  const unm=(p.bom&&p.bom.unmatched)||[];
+  return `<div style="margin:6px 0">Plates from <select onchange="colorFile['${p.id}']=this.value;render()"><option value="">all files</option>${files.map(f=>`<option${f===file?' selected':''}>${esc(f)}</option>`).join('')}</select>
+    ${file?'':'<span class="muted">(a part made in several files is listed under each)</span>'}</div>
+    ${plan.length?plan.map(([col,rows])=>`<div style="margin-top:8px"><b>${col.split(' + ').map(c=>colorDot(c)+esc(c)).join(' + ')}</b>
+      <ul style="margin:4px 0 0 18px;padding:0">${rows.map(r=>`<li>${esc(r.s.plate_name||r.s.title)} <span class="muted">· plate ${esc(r.s.plate)}${files.length>1&&!file?' · '+esc(r.s.file):''}</span>${r.times>1?` <b>×${r.times}</b>`:''}
+        <span class="muted">for ${r.need.map(pid=>esc(pname(pid))).join(', ')}</span></li>`).join('')}</ul></div>`).join('')
+      :'<div class="muted">Nothing left to print.</div>'}
+    ${unm.length?`<div class="muted" style="margin-top:6px">In the BOM but not matched to a part: ${unm.map(esc).join(', ')}. Set a part's color in the parts list above.</div>`:''}`;
+}
+function importBom(project){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='application/pdf,.pdf';
+  inp.onchange=async()=>{
+    const f=inp.files[0]; if(!f) return; const CH=8*1024*1024;
+    try{
+      let r;
+      for(let off=0;off<f.size;off+=CH){
+        toast(`Reading the BOM… ${Math.round(100*off/f.size)}%`);
+        r=await (await fetch(`api/bom_chunk?offset=${off}&total=${f.size}&project=${encodeURIComponent(project||'')}`,{method:'POST',body:f.slice(off,off+CH)})).json();
+        if(!r.ok) throw new Error(r.error);
+      }
+      openColors[r.project]=true;
+      toast(`BOM imported: ${r.colored} parts have a color${r.unmatched.length?`; not matched: ${r.unmatched.join(', ')}`:''}`);
+    }catch(e){toast('BOM import failed: '+e.message);}
+    await load();
+  };
+  inp.click();
+}
+async function setColor(project,part){
+  const p=(D.state.projects||[]).find(x=>x.id===project), cur=(p.colors||{})[part]||{};
+  const c=prompt(`Color for ${(cat().parts.find(q=>q.id===part)||{}).name||part} (empty to clear)`,cur.color||''); if(c===null) return;
+  await act('project_color',{project,part,color:c,material:cur.material||null});
+}
+function printColors(id){
+  const p=(D.state.projects||[]).find(x=>x.id===id), x=(D.projects||[]).find(x=>x.id===id); if(!p||!x) return;
+  const pname=pid=>(cat().parts.find(q=>q.id===pid)||{}).name||pid;
+  const rows=colorPlan(p,x,colorFile[id]||'').map(([col,rs])=>`<tr><th colspan="4" style="text-align:left">${esc(col)}</th></tr>`+rs.map(r=>
+    `<tr><td>☐</td><td>${esc(r.s.plate_name||r.s.title)} · plate ${esc(r.s.plate)}</td><td>${r.times>1?'×'+r.times:''}</td><td>${r.need.map(pid=>esc(pname(pid))).join(', ')}</td></tr>`).join('')).join('');
+  $('printview').innerHTML=`<h2 style="color:#000">${esc(p.name)}: plates by color</h2><p>${colorFile[id]?esc(colorFile[id])+' · ':''}${new Date().toLocaleString()}</p>
+    <table><tr><th></th><th>Plate</th><th></th><th>For</th></tr>${rows}</table>`;
+  window.print();
+}
 async function takeSpare(project,part){const r=await act('take_from_pool',{project,part}); if(r.ok) toast(`Took ${r.moved} from the spares`);}
 const projName=id=>((D.state.projects||[]).find(p=>p.id===id)||{}).name||'(removed project)';
 function projSelect(value,onchange){
@@ -337,18 +411,21 @@ function renderProjects(){
       <div>${st} <span class="muted">${x.pieces} of ${x.of} pieces</span> ${printing(p.id)}</div>
       ${!p.done&&miss.length?`<div class="missing muted">Still needed: ${miss.slice(0,10).map(([pid,n])=>`${esc(pname(pid))} ×${n}`).join(', ')}${miss.length>10?`, and ${miss.length-10} more`:''}</div>`:''}
       <details class="missing" data-proj="${p.id}" ontoggle="openParts[this.dataset.proj]=this.open"${openParts[p.id]?' open':''}><summary class="muted">parts: mark printed, take from spares, correct</summary><table class="small-text" style="margin-top:6px">
-        <tr><th>Part</th><th class="num">Have</th><th class="num">Spare</th><th></th></tr>${
+        <tr><th>Part</th>${p.colors?'<th>Color</th>':''}<th class="num">Have</th><th class="num">Spare</th><th></th></tr>${
         [...new Set([...Object.keys(x.needs||{}),...Object.keys(p.counts).filter(k=>p.counts[k]>0)])].map(pid=>{
           const have=p.counts[pid]||0, need=(x.needs||{})[pid]||0, left=Math.max(0,need-have), sp=pool[pid]||0;
-          return `<tr><td>${have>=need&&need?'✓ ':''}${esc(pname(pid))}</td><td class="num">${have}${need?' / '+need:''}</td><td class="num">${sp||''}</td>
+          return `<tr><td>${have>=need&&need?'✓ ':''}${esc(pname(pid))}</td>${p.colors?`<td style="cursor:pointer" title="Click to change" onclick="setColor('${p.id}','${pid}')">${colorTag(p,pid)}</td>`:''}<td class="num">${have}${need?' / '+need:''}</td><td class="num">${sp||''}</td>
           <td style="white-space:normal;line-height:28px"><button class="small" onclick="adjust('${pid}',-1,'${p.id}')">−</button> <button class="small" onclick="adjust('${pid}',1,'${p.id}')">+</button>
           ${left?`<button class="small" title="printed before, not in the tracker" onclick="adjust('${pid}',${left},'${p.id}')">all printed</button>`:''}
           ${left&&sp?`<button class="small" onclick="takeSpare('${p.id}','${pid}')">take ${Math.min(left,sp)} from spares</button>`:''}</td></tr>`;}).join('')}</table>
         <div class="muted" style="margin-top:4px">Prints already counted as spares can also be moved here one by one under Recent prints → For.</div></details>
+      ${p.colors&&!p.done?`<details class="missing" data-proj="${p.id}" ontoggle="openColors[this.dataset.proj]=this.open"${openColors[p.id]?' open':''}><summary class="muted">plates by color${p.bom&&p.bom.date?` (BOM of ${esc(p.bom.date)})`:''}</summary>${colorPlanHTML(p,x)}</details>`:''}
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         ${!p.done&&spare?`<button class="small" onclick="fillFromPool('${p.id}')">use spare parts</button>`:''}
         ${p.done?`<button class="small" onclick="projectDone('${p.id}',false)">reopen</button>`:`<button class="small${x.complete?' primary':''}" onclick="projectDone('${p.id}',true)">mark done</button>`}
         <button class="small" onclick="printProject('${p.id}')">print list</button>
+        ${p.colors?`<button class="small" onclick="printColors('${p.id}')">print by color</button>`:''}
+        <button class="small" title="The Bill of Materials PDF from the build page: each part's color" onclick="importBom('${p.id}')">${p.colors?'new BOM':'import BOM'}</button>
         <button class="small" onclick="renameProject('${p.id}')">rename</button>
         <button class="small" onclick="deleteProject('${p.id}')">remove</button></div></div>`;
   };

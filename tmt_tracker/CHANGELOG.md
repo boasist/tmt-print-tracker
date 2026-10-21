@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2
+
+- **Import a BOM**: the Bill of Materials PDF from the 3d-mobility.org build page (New project → import a BOM, or
+  **import BOM** on a project). It sets each part's color for that project; only the color is used, not the brand.
+  A new project is named after the BOM (request number and child's name).
+- **Plates by color** on a project with a BOM: the plates it still needs, grouped by the colors on each plate, with
+  how many times to print each and an optional file filter; **print by color** prints it as a checklist. Click a
+  part's color in the project's parts list to change it, for parts the BOM didn't match.
+- A printer printing for that project shows the plate's color on its card.
+
 ## 0.3.1
 
 - Brings in 0.3.0 (print queue, phone alerts, printer details, print times, build planner) on top of the Moonraker,
