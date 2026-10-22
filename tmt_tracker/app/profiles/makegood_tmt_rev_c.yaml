@@ -28,7 +28,8 @@ files:
 # Plates that count toward a TMT. Any other plate of these files (or of any other 3MF you upload) is still
 # recognised when printed, but logged as "not a TMT plate".
 # printer_models limits a plate to printers whose Home Assistant device model starts with one of these (the print
-# queue and planner keep it there).
+# queue and planner keep it there). Optional plates aren't needed for a TMT to count as complete, and aren't queued or
+# planned unless they also have plan: true.
 plates:
   - {file: all_parts, plates: [1, 2, 3, 4, 5, 6, 7, 8], group: Frame}      # handles, wheel mounts, wings, storage
   - {file: all_parts, plates: [10], group: Frame}                           # rear caster mounts, kit version (9 = McMaster)
@@ -42,8 +43,8 @@ plates:
   - {file: grip_v2, plates: [1], group: Push handle, material: TPU}
   - {file: all_parts, plates: [20], group: Buckles & slides}
   - {file: harness, plates: [1, 2, 3, 4], group: Harness & straps, material: TPU}
-  - {file: cup_holder, plates: [1, 2, 3, 4, 5, 6], group: Accessories}       # any one cup holder: v3/v2/v1, right/left
-  - {file: tablet_holder, plates: [1, 2], group: Accessories}
+  - {file: cup_holder, plates: [1, 2, 3, 4, 5, 6], group: Accessories, optional: true, plan: true}   # any one: v3/v2/v1, right/left
+  - {file: tablet_holder, plates: [1, 2], group: Accessories, optional: true, plan: true}
   - {file: all_parts, plates: [17], group: Headrest, optional: true}
   - {file: all_parts, plates: [24], group: Headrest, optional: true, material: TPU}
 

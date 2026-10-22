@@ -285,10 +285,11 @@ def printing_now(st):
 
 
 def still_needed(st, cat):
-    """Pieces per part the planned TMTs still need, after what's printed and what's printing now (optional parts out)."""
+    """Pieces per part the planned TMTs still need, after what's printed and what's printing now. Optional parts are
+    left out unless their plate rule has `plan: true` (the accessories)."""
     counts = st["counts"]
     need = {p["id"]: p["qty"] * st["target"] - counts.get(p["id"], 0)
-            for p in cat["parts"] if not p["optional"] and not p.get("alt")}
+            for p in cat["parts"] if (not p["optional"] or p.get("plan")) and not p.get("alt")}
     for alt in cat.get("alternatives", []):   # an either/or part: plan the first option unless one is already covered
         if alt["options"] and not any(all(counts.get(pid, 0) >= q * st["target"] for pid, q in o["parts"].items())
                                       for o in alt["options"]):

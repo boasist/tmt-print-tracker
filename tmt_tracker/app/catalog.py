@@ -156,7 +156,7 @@ def build(profile, files_dir, thumbs_dir):
                 yields[pid] += n
                 if rule:
                     p = parts.setdefault(pid, {"id": pid, "code": code, "name": name, "group": rule["group"], "qty": 0,
-                                               "optional": bool(rule.get("optional")),
+                                               "optional": bool(rule.get("optional")), "plan": bool(rule.get("plan")),
                                                "material": rule.get("material", default_material)})
                     p["qty"] = max(p["qty"], n)
             thumb = None

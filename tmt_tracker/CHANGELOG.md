@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3
+
+- The accessories (cup holder, tablet holder) are optional: a TMT counts as complete without them. They're still
+  queued and planned for each TMT, and **Mark assembled** takes the ones you have along with the TMT.
+- Profiles: `plan: true` on an optional plate keeps it in the queue and planner. The headrest stays optional and
+  unplanned.
+
 ## 0.3.2
 
 - **Accessories** in the default build: one cup holder (any of v1, v2 or v3, right or left, from the 3D TMT Cup Holder

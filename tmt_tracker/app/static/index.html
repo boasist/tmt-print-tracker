@@ -244,7 +244,8 @@ function renderParts(){
   let html=`<tr><th>Part</th><th class="hide-sm">Material</th><th class="num">Per TMT</th><th class="num">Printed</th>${sl.map(x=>`<th class="slot">#${x.build}</th>`).join('')}<th>Now</th><th></th></tr>`;
   for(const g of [...new Set(parts.map(p=>p.group))]){
     const ps=parts.filter(p=>p.group===g);
-    html+=`<tr class="group"><td colspan="${cols}">${esc(g)}${ps.every(p=>p.optional)?' — optional, not needed for a TMT to count as complete':''}</td></tr>`;
+    const opt=ps.every(p=>p.optional), planned=opt&&ps.every(p=>p.plan);
+    html+=`<tr class="group"><td colspan="${cols}">${esc(g)}${planned?' — optional: queued and planned, but not needed for a TMT to count as complete':opt?' — optional, not needed for a TMT to count as complete':''}</td></tr>`;
     for(const alt of (cat().alternatives||[]).filter(a=>a.group===g)){
       const best=k=>Math.max(...alt.options.map(o=>Math.min(...Object.entries(o.parts).map(([pid,q])=>covered(counts[pid]||0,q,k)/q))));
       html+=`<tr><td><b>${esc(alt.name)}</b> <span class="muted">— either option</span></td><td class="hide-sm"></td><td class="num">${alt.qty}</td><td></td>${sl.map((x,i)=>{const b=best(i+1);return `<td class="slot">${b>=1?'<span class="tag ok">✓</span>':b>0?'<span class="tag warn">part</span>':'<span class="tag">–</span>'}</td>`;}).join('')}<td></td><td></td></tr>`;

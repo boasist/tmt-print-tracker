@@ -139,8 +139,9 @@ On first start the built-in profiles are copied to `profiles/example_*.yaml` in 
 `profiles/my_build.yaml`, edit it, set the `profile` option to `profiles/my_build.yaml` and restart the app.
 
 - `files`: the design files, by the Title inside each 3MF.
-- `plates`: which plates count toward a TMT, each with a `group`, and optionally `material`, `optional: true` and
-  `printer_models` (printers whose Home Assistant device model starts with one of these, e.g. `[H2]`). Plates not
+- `plates`: which plates count toward a TMT, each with a `group`, and optionally `material`, `optional: true` (not
+  needed for a TMT to count as complete), `plan: true` (an optional plate the queue and planner still plan, like the
+  accessories) and `printer_models` (printers whose Home Assistant device model starts with one of these, e.g. `[H2]`). Plates not
   listed are still recognised when printed, and logged as "not a TMT plate".
 - `quantities`: pieces per TMT where it isn't simply one plate's worth (for example 16 tires from an 8-tire plate).
 - `alternatives`: one requirement any one option satisfies (for example a single-piece part or a set of smaller

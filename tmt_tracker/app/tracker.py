@@ -370,6 +370,8 @@ class Tracker:
         for p in self.catalog["parts"]:
             if not p["optional"] and not p.get("alt"):
                 counts[p["id"]] = counts.get(p["id"], 0) - p["qty"]
+            elif p.get("plan"):   # planned optional parts (accessories) go with it as far as there are any
+                counts[p["id"]] = counts.get(p["id"], 0) - min(p["qty"], max(0, counts.get(p["id"], 0)))
         for alt in self.catalog.get("alternatives", []):
             for o in alt["options"]:
                 if all(counts.get(pid, 0) >= q for pid, q in o["parts"].items()):

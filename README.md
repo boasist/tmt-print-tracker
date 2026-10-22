@@ -78,7 +78,8 @@ TMT page.
 The built-in profile follows MakeGood's 3D Toddler Mobility Trainer, Rev C, with these choices: one-piece footrest,
 Rev B wheel rims (4, one per plate), 16 TPU tires from the 0.8 mm HF tire file, the single-piece push handle (H2-series
 printers only, so it's only queued on those) and V2 push handle grip, the separate harness & straps file, kit caster
-mounts, one cup holder and one tablet holder as accessories, and the headrest as optional. Copy and edit the profile to build it differently.
+mounts, and as optional: one cup holder and one tablet holder (accessories, still queued and planned) and the
+headrest. Copy and edit the profile to build it differently.
 
 ## Credits
 
