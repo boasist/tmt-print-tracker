@@ -304,13 +304,15 @@ def still_needed(st, cat):
 
 def planned_runs(st, cat):
     """The plates still to print, in catalog order, a plate repeated when it's needed more than once (4 wheel rims).
-    Each part comes from the plate that makes the most of it (the 8-tire plate, not the 1-tire test plate)."""
+    Each part comes from the plate that makes the most of it (the 8-tire plate, not the 1-tire test plate); on a tie,
+    from the plate with more pieces on it (a combined cup + tablet holder plate rather than three separate plates)."""
     need, skip = still_needed(st, cat), set(st["queue_skip"])
     srcs = [s for s in cat["sources"] if s["counts"] and s["id"] not in skip]
     producer = {}
     for s in srcs:
         for pid, n in s["yields"].items():
-            if pid not in producer or n > producer[pid]["yields"][pid]:
+            cur = producer.get(pid)
+            if cur is None or (n, sum(s["yields"].values())) > (cur["yields"][pid], sum(cur["yields"].values())):
                 producer[pid] = s
     runs = []
     for s in srcs:

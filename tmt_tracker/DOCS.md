@@ -145,7 +145,8 @@ On first start the built-in profiles are copied to `profiles/example_*.yaml` in 
 - `quantities`: pieces per TMT where it isn't simply one plate's worth (for example 16 tires from an 8-tire plate).
 - `alternatives`: one requirement any one option satisfies (for example a single-piece part or a set of smaller
   parts).
-- `part_rules`: turn object names inside the files into part names; anything else is cleaned up automatically.
+- `part_rules`: turn object names inside the files into part names; anything else is cleaned up automatically. A
+  rule with `file` only applies to that file, for designs whose objects have generic names ("Part Studio 2 - Part 4").
 
 Part counts are kept by part id, so changing the profile or replacing a file keeps the counts.
 

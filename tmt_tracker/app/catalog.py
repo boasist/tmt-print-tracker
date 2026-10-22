@@ -93,11 +93,12 @@ class PartNamer:
         self.rules = [(re.compile(r["match"], re.I), r) for r in profile.get("part_rules", [])]
         self.strip = re.compile(profile.get("strip_prefixes") or r"^$", re.I)
 
-    def __call__(self, raw):
-        """(id, display name, letter code) for an object name like '3DTMT A1 HANDLE LEFT REV A.STEP'."""
+    def __call__(self, raw, file_key=None):
+        """(id, display name, letter code) for an object name like '3DTMT A1 HANDLE LEFT REV A.STEP'. A rule with a
+        `file` only applies to that profile file (for generic names like 'Part Studio 2 - Part 4')."""
         n = re.sub(r"\.(step|stl|3mf|obj)(_\d+)?$", "", raw.strip(), flags=re.I)
         for rx, r in self.rules:
-            if rx.search(n):
+            if rx.search(n) and r.get("file") in (None, file_key):
                 return r["id"], r.get("name") or r["id"], r.get("code", "")
         n = self.strip.sub("", n)
         n = re.sub(r"\s+REV [A-Z]\b.*$", "", n, flags=re.I).strip()
@@ -151,7 +152,7 @@ def build(profile, files_dir, thumbs_dir):
             rule = counting.get((key, idx)) if key else None
             yields = Counter()
             for raw, n in pl["objects"].items():
-                pid, name, code = namer(raw)
+                pid, name, code = namer(raw, key)
                 yields[pid] += n
                 if rule:
                     p = parts.setdefault(pid, {"id": pid, "code": code, "name": name, "group": rule["group"], "qty": 0,

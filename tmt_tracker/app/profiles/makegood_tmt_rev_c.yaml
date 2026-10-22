@@ -20,6 +20,10 @@ files:
     title: TMT Push Handle Grip                  # modified grip (plate 1 with logo, plate 2 without)
   single_handle:
     title: TMT Single Piece handle - H2S/D only. # one-piece push handle, H2-series printers only
+  cup_holder:
+    title: 3D TMT Cup Holder                     # v1, v2 and v3, right and left (0.4 mm nozzle file)
+  tablet_holder:
+    title: 3DTMT Tablet ACC Holder               # tablet holder accessory, two plates
 
 # Plates that count toward a TMT. Any other plate of these files (or of any other 3MF you upload) is still
 # recognised when printed, but logged as "not a TMT plate".
@@ -38,10 +42,12 @@ plates:
   - {file: grip_v2, plates: [1], group: Push handle, material: TPU}
   - {file: all_parts, plates: [20], group: Buckles & slides}
   - {file: harness, plates: [1, 2, 3, 4], group: Harness & straps, material: TPU}
+  - {file: cup_holder, plates: [1, 2, 3, 4, 5, 6], group: Accessories}       # any one cup holder: v3/v2/v1, right/left
+  - {file: tablet_holder, plates: [1, 2], group: Accessories}
   - {file: all_parts, plates: [17], group: Headrest, optional: true}
   - {file: all_parts, plates: [24], group: Headrest, optional: true, material: TPU}
 
-group_order: [Frame, Seat, Connectors, Wheels, Push handle, Buckles & slides, Harness & straps, Headrest]
+group_order: [Frame, Seat, Connectors, Wheels, Push handle, Buckles & slides, Harness & straps, Accessories, Headrest]
 
 # Pieces one TMT needs, where it isn't simply "what one plate holds".
 quantities:
@@ -59,7 +65,8 @@ quantities:
 alternatives: []
 
 # Turn the object names inside the 3MF files into part ids and display names. Tried in order; the first match wins.
-# Anything else is cleaned up automatically ("3DTMT A1 HANDLE LEFT REV A.STEP" becomes "A1 Handle Left").
+# A rule with a file key only applies to that file. Anything else is cleaned up automatically ("3DTMT A1 HANDLE LEFT
+# REV A.STEP" becomes "A1 Handle Left").
 part_rules:
   - {match: '^8 Tires|\bTIRE\b', id: tire, name: Tire, code: P}
   - {match: 'WHEEL RIM', id: wheel-rim, name: Wheel rim, code: O}
@@ -69,4 +76,9 @@ part_rules:
   - {match: '^2\.0 cm - Side B', id: buckle-2cm-b, name: 'Buckle 2 cm, side B'}
   - {match: '^3\.2 cm - Side A', id: buckle-3-2cm-a, name: 'Buckle 3.2 cm, side A'}
   - {match: '^3\.2 cm - Side B', id: buckle-3-2cm-b, name: 'Buckle 3.2 cm, side B'}
+  - {match: 'CUP HOLDER', id: cup-holder, name: Cup holder}          # every version counts as the one cup holder
+  - {file: tablet_holder, match: '^Part Studio 2 - Part 2$', id: tablet-holder-mount, name: Tablet holder mount}
+  - {file: tablet_holder, match: '^Part Studio 2 - Part 3$', id: tablet-holder-arm, name: Tablet holder arm}
+  - {file: tablet_holder, match: '^Part Studio 2 - Part 4$', id: tablet-holder-cradle, name: Tablet holder cradle}
+  - {file: tablet_holder, match: '^Part Studio 2 - Part 5$', id: tablet-holder-screw, name: Tablet holder screw}
 strip_prefixes: '^(3D ?TMT|TMT3D|MG_)\s*-?\s*'

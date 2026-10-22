@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.2
+
+- **Accessories** in the default build: one cup holder (any of v1, v2 or v3, right or left, from the 3D TMT Cup Holder
+  file) and one tablet holder (both plates of the 3DTMT Tablet ACC Holder file) per TMT. Upload the two files to add
+  them; until then the page lists them as missing.
+- When two plates make the same number of a part, the queue now plans the one with more pieces on it, so a custom plate
+  that combines the cup and tablet holders is printed once instead of three separate plates.
+- Profiles: a part rule can name a `file`, so it only applies to that file's objects.
+
 ## 0.3.1
 
 - **Custom plates**: for a plate you combined or changed (say two wheel rims and a bolt cap on one plate), choose
