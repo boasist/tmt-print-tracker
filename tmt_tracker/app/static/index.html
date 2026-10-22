@@ -156,7 +156,8 @@ function nowPrinting(){
     const cur=(D.state.printers||{})[p.key]; const status=p.live.print_status||(cur&&cur.status);
     if(!cur||!cur.source||cur.done||!ACTIVE.includes(status)) continue;
     const s=srcById(cur.source); if(!s||!s.counts) continue;
-    for(const [pid,n] of Object.entries(s.yields)) (map[pid]=map[pid]||[]).push({printer:p.name,n,progress:p.live.print_progress});
+    const of=s.set?`plate ${s.set.plates.indexOf(s.id)+1} of ${s.set.plates.length}`:'';
+    for(const [pid,n] of Object.entries(s.yields)) (map[pid]=map[pid]||[]).push({printer:p.name,n,of,progress:p.live.print_progress});
   }
   return map;
 }
@@ -232,12 +233,24 @@ function renderBuilds(){
   }).join(''));
 }
 
+function setCell(pid){
+  // a part made by a set of plates (the tablet holder): which plates of the next set are already printed
+  const seen=new Set(), out=[];
+  for(const s of cat().sources){
+    if(!s.set||!s.yields[pid]||seen.has(s.set.id)) continue; seen.add(s.set.id);
+    const prog=(D.state.sets||{})[s.set.id]||{}, done=Math.min(...s.set.plates.map(x=>prog[x]||0));
+    const ahead=s.set.plates.map((x,i)=>(prog[x]||0)>done?i+1:0).filter(Boolean);
+    if(ahead.length) out.push(`<span class="tag">plate ${ahead.join(' + ')} of ${s.set.plates.length} printed</span>`);
+  }
+  return out.join('');
+}
+
 function renderParts(){
   const sl=D.summary.slots, now=nowPrinting(), counts=D.state.counts||{}, parts=cat().parts;
   if(!parts.length){setHTML('parts','<tr><td class="muted">No parts yet: upload the design files under Files.</td></tr>');return;}
   const cols=6+sl.length;
   const chip=(c,q,k)=>{const v=covered(c,q,k);return v>=q?'<span class="tag ok">✓</span>':v>0?`<span class="tag warn">${v}/${q}</span>`:'<span class="tag">–</span>';};
-  const nowCell=pid=>(now[pid]||[]).map(x=>`<span class="tag now">${esc(x.printer)} +${x.n} · ${esc(x.progress??'?')}%</span>`).join('');
+  const nowCell=pid=>(now[pid]||[]).map(x=>`<span class="tag now">${esc(x.printer)} ${x.of?esc(x.of):'+'+x.n} · ${esc(x.progress??'?')}%</span>`).join('')+setCell(pid);
   const row=(p,indent)=>`<tr><td${indent?' style="padding-left:36px"':''}><span class="code">${esc(p.code)}</span>${esc(p.name)}</td><td class="hide-sm muted">${esc(p.material)}</td>
     <td class="num">${p.qty}</td><td class="num">${counts[p.id]||0}</td>${sl.map((x,i)=>`<td class="slot">${chip(counts[p.id]||0,p.qty,i+1)}</td>`).join('')}
     <td>${nowCell(p.id)}</td><td class="adj"><button class="small" onclick="adjust('${p.id}',-1)">−</button> <button class="small" onclick="adjust('${p.id}',1)">+</button></td></tr>`;

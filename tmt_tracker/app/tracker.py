@@ -45,7 +45,9 @@ class Tracker:
     # ------------------------------------------------------------ plumbing
     def set_catalog(self, catalog):
         """The catalog from the profile and files, plus your custom plates (plates you combined or changed)."""
-        self.catalog = dict(catalog, sources=catalog["sources"] + self.st.get("custom_sources", []))
+        known = {p["id"] for p in catalog["parts"]}   # a custom plate whose parts left the catalog is ignored
+        self.catalog = dict(catalog, sources=catalog["sources"] + [s for s in self.st.get("custom_sources", [])
+                                                                   if set(s["yields"]) <= known])
         self._masks = {}
         pl.reconcile(self.st, self.catalog)
 
@@ -74,8 +76,7 @@ class Tracker:
         return entry
 
     def _add(self, src, sign=1):
-        for pid, n in src["yields"].items():
-            self.st["counts"][pid] = self.st["counts"].get(pid, 0) + sign * n
+        return pl.add_yields(self.st, src, sign)
 
     def _mask(self, thumb):
         if thumb not in self._masks:
@@ -219,8 +220,7 @@ class Tracker:
             elif src is None:
                 e = self._log(printer=printer, task=task, plate=plate, source=None, result="unmatched")
             elif src["counts"]:
-                self._add(src)
-                e = self._log(printer=printer, task=task, plate=plate, source=src["id"], result="counted", yields=src["yields"])
+                e = self._log(printer=printer, task=task, plate=plate, source=src["id"], result="counted", yields=self._add(src))
             else:
                 e = self._log(printer=printer, task=task, plate=plate, source=src["id"], result="other")
             log.info("%s: %s %s", printer, e["result"], e.get("source"))
@@ -261,7 +261,7 @@ class Tracker:
         st = self.st
         pl.queue_state(st); pl.times_state(st); pl.plan_cfg(st)
         keys = ("target", "assembled", "counts", "printers", "log", "updated", "queue", "queue_skip", "queue_cfg",
-                "queue_unassigned", "bed", "times", "plan", "plan_cfg", "printer_info", "custom_sources")
+                "queue_unassigned", "bed", "times", "plan", "plan_cfg", "printer_info", "custom_sources", "sets")
         return dict({k: st.get(k) for k in keys}, plan_cfg=pl.plan_cfg_view(st), plate_times=pl.plate_times(st, self.catalog),
                     plan_data=pl.plan_data(st, self.catalog))
 
@@ -277,8 +277,7 @@ class Tracker:
                 self._add(srcs[e["source"]], -1)
             e["source"] = src["id"]
             if src["counts"]:
-                self._add(src)
-                e["result"], e["yields"] = "counted", src["yields"]
+                e["result"], e["yields"] = "counted", self._add(src)
             else:
                 e["result"], e["yields"] = "other", {}
             task, plate, pr = e.get("task"), e.get("plate"), e.get("printer")
@@ -310,7 +309,9 @@ class Tracker:
             for s in self.catalog["sources"]:
                 if len(s["yields"]) == 1 and s.get("volume_cm3"):
                     (pid, n), = s["yields"].items()
-                    per_piece.setdefault(pid, s["volume_cm3"] / n)
+                    vol = (sum(x.get("volume_cm3") or 0 for x in self.catalog["sources"] if x.get("set") == s["set"])
+                           if s.get("set") else s["volume_cm3"])
+                    per_piece.setdefault(pid, vol / n)
             first = parts[next(iter(yields))]
             src = {"id": sid, "file": "", "title": "Custom plate", "plate": 0, "custom": True, "created": now(),
                    "plate_name": " + ".join(f"{n} × {parts[pid]['name']}" for pid, n in yields.items()),

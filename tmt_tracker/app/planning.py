@@ -284,6 +284,34 @@ def printing_now(st):
             if cur.get("source") and cur.get("job") and not cur.get("done") and cur.get("status") in ACTIVE}
 
 
+def set_done(prog, src):
+    """How many whole sets the plates of src's set have made, from {plate source id: times printed}."""
+    return min(prog.get(sid, 0) for sid in src["set"]["plates"])
+
+
+def set_progress(st, src, printing=()):
+    """{plate: times printed} for src's set, counting the plates in `printing` as printed."""
+    prog = dict(st.get("sets", {}).get(src["set"]["id"], {}))
+    for sid in printing:
+        prog[sid] = prog.get(sid, 0) + 1
+    return prog
+
+
+def add_yields(st, src, sign=1):
+    """Count a plate's parts (sign -1 takes them back) and return what changed. A plate of a set (plates that only
+    make a part together, like a two-plate tablet holder) counts the set's parts when it completes one: once every
+    plate of the set has printed once more."""
+    times = sign
+    if src.get("set"):
+        prog = st.setdefault("sets", {}).setdefault(src["set"]["id"], {})
+        before = set_done(prog, src)
+        prog[src["id"]] = max(0, prog.get(src["id"], 0) + sign)
+        times = set_done(prog, src) - before
+    for pid, n in src["yields"].items():
+        st["counts"][pid] = st["counts"].get(pid, 0) + times * n
+    return {pid: times * n for pid, n in src["yields"].items() if times}
+
+
 def still_needed(st, cat):
     """Pieces per part the planned TMTs still need, after what's printed and what's printing now. Optional parts are
     left out unless their plate rule has `plan: true` (the accessories)."""
@@ -296,10 +324,17 @@ def still_needed(st, cat):
             for pid, q in alt["options"][0]["parts"].items():
                 need[pid] = q * st["target"] - counts.get(pid, 0)
     srcs = sources_by_id(cat)
-    for sid in printing_now(st).values():
-        if srcs.get(sid) and srcs[sid]["counts"]:
-            for pid, n in srcs[sid]["yields"].items():
+    printing = [srcs[sid] for sid in printing_now(st).values() if srcs.get(sid) and srcs[sid]["counts"]]
+    for s in printing:
+        if not s.get("set"):
+            for pid, n in s["yields"].items():
                 need[pid] = need.get(pid, 0) - n
+    for set_id in {s["set"]["id"] for s in printing if s.get("set")}:   # a set's plate counts only if it completes the set
+        mine = [s for s in printing if s.get("set") and s["set"]["id"] == set_id]
+        prog = set_progress(st, mine[0], [s["id"] for s in mine])
+        gain = set_done(prog, mine[0]) - set_done(st.get("sets", {}).get(set_id, {}), mine[0])
+        for pid, n in mine[0]["yields"].items():
+            need[pid] = need.get(pid, 0) - gain * n
     return need
 
 
@@ -318,10 +353,18 @@ def planned_runs(st, cat):
     runs = []
     for s in srcs:
         mine = [pid for pid in s["yields"] if producer.get(pid) is s]
+        k = 0
         while any(need.get(pid, 0) > 0 for pid in mine):
-            runs.append(s["id"])
+            k += 1
             for pid, n in s["yields"].items():
                 need[pid] = need.get(pid, 0) - n
+        if k and s.get("set"):   # every plate of the set, as often as it takes to finish k more sets
+            prog = set_progress(st, s, [sid for sid in printing_now(st).values() if sid in s["set"]["plates"]])
+            for sid in s["set"]["plates"]:
+                if sid not in skip:
+                    runs += [sid] * max(0, set_done(prog, s) + k - prog.get(sid, 0))
+        else:
+            runs += [s["id"]] * k
     return runs
 
 
@@ -578,6 +621,9 @@ def finish_notice(st, cat, res, summary):
     name = printer_name(st, pr)
     if e["result"] == "failed":
         title, first = f"{name}: print failed", f"{what} failed and wasn't counted."
+    elif e["result"] == "counted" and s and s.get("set") and not e.get("yields"):
+        n = len(s["set"]["plates"])
+        title, first = f"{name} finished", f"{what} printed: plate {s['set']['plates'].index(s['id']) + 1} of {n}; it counts once all {n} are printed."
     elif e["result"] == "counted":
         title, first = f"{name} finished", f"{what} counted. TMT #{slot.get('build', 1)}: {int(slot.get('pieces', 0))} of {slot.get('of', 0)} pieces."
     elif e["result"] == "unmatched":

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.4
+
+- The tablet holder is one item, like the cup holder. Its file splits it over two plates; the tablet holder counts
+  once both plates have printed, and the queue and planner plan whichever plate is still missing. A plate that holds the
+  whole tablet holder (a custom plate) counts it at once. The parts table shows "plate 1 of 2 printed" in between.
+- Profiles: `together: {part: n}` on a plate rule for plates that only make a part as a set.
+- A custom plate whose parts are no longer in the build (after a profile change) is ignored instead of planned.
+
 ## 0.3.3
 
 - The accessories (cup holder, tablet holder) are optional: a TMT counts as complete without them. They're still

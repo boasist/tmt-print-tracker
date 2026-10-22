@@ -151,7 +151,19 @@ def build(profile, files_dir, thumbs_dir):
         for idx, pl in sorted(f["plates"].items()):
             rule = counting.get((key, idx)) if key else None
             yields = Counter()
-            for raw, n in pl["objects"].items():
+            together = (rule or {}).get("together")
+            if together:   # plates that only make these parts together: each carries the set's parts
+                names = {}
+                for raw in pl["objects"]:
+                    pid, name, code = namer(raw, key)
+                    names.setdefault(pid, name)
+                for pid, n in together.items():
+                    yields[pid] = int(n)
+                    p = parts.setdefault(pid, {"id": pid, "code": "", "name": names.get(pid) or pid.replace("-", " ").capitalize(),
+                                               "group": rule["group"], "qty": 0, "optional": bool(rule.get("optional")),
+                                               "plan": bool(rule.get("plan")), "material": rule.get("material", default_material)})
+                    p["qty"] = max(p["qty"], int(n))
+            for raw, n in ({} if together else pl["objects"]).items():
                 pid, name, code = namer(raw, key)
                 yields[pid] += n
                 if rule:
@@ -166,7 +178,9 @@ def build(profile, files_dir, thumbs_dir):
             sources.append({"id": f"{digest}#{idx}", "file": path.name, "title": f["title"], "plate": idx,
                             "plate_name": pl["name"], "counts": rule is not None, "group": rule["group"] if rule else None,
                             "yields": dict(yields), "thumb": thumb, "volume_cm3": pl.get("volume_cm3"),
-                            **({"printer_models": rule["printer_models"]} if rule and rule.get("printer_models") else {})})
+                            **({"printer_models": rule["printer_models"]} if rule and rule.get("printer_models") else {}),
+                            **({"set": {"id": f"{digest}#{'+'.join(map(str, rule['plates']))}",
+                                        "plates": [f"{digest}#{i}" for i in rule["plates"]]}} if together else {})})
     for pid, q in (profile.get("quantities") or {}).items():
         if pid in parts:
             parts[pid]["qty"] = int(q)

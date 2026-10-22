@@ -29,7 +29,7 @@ files:
 # recognised when printed, but logged as "not a TMT plate".
 # printer_models limits a plate to printers whose Home Assistant device model starts with one of these (the print
 # queue and planner keep it there). Optional plates aren't needed for a TMT to count as complete, and aren't queued or
-# planned unless they also have plan: true.
+# planned unless they also have plan: true. together: plates that only make these parts as a set (each printed once).
 plates:
   - {file: all_parts, plates: [1, 2, 3, 4, 5, 6, 7, 8], group: Frame}      # handles, wheel mounts, wings, storage
   - {file: all_parts, plates: [10], group: Frame}                           # rear caster mounts, kit version (9 = McMaster)
@@ -44,7 +44,7 @@ plates:
   - {file: all_parts, plates: [20], group: Buckles & slides}
   - {file: harness, plates: [1, 2, 3, 4], group: Harness & straps, material: TPU}
   - {file: cup_holder, plates: [1, 2, 3, 4, 5, 6], group: Accessories, optional: true, plan: true}   # any one: v3/v2/v1, right/left
-  - {file: tablet_holder, plates: [1, 2], group: Accessories, optional: true, plan: true}
+  - {file: tablet_holder, plates: [1, 2], group: Accessories, optional: true, plan: true, together: {tablet-holder: 1}}   # one tablet holder: both plates
   - {file: all_parts, plates: [17], group: Headrest, optional: true}
   - {file: all_parts, plates: [24], group: Headrest, optional: true, material: TPU}
 
@@ -78,8 +78,5 @@ part_rules:
   - {match: '^3\.2 cm - Side A', id: buckle-3-2cm-a, name: 'Buckle 3.2 cm, side A'}
   - {match: '^3\.2 cm - Side B', id: buckle-3-2cm-b, name: 'Buckle 3.2 cm, side B'}
   - {match: 'CUP HOLDER', id: cup-holder, name: Cup holder}          # every version counts as the one cup holder
-  - {file: tablet_holder, match: '^Part Studio 2 - Part 2$', id: tablet-holder-mount, name: Tablet holder mount}
-  - {file: tablet_holder, match: '^Part Studio 2 - Part 3$', id: tablet-holder-arm, name: Tablet holder arm}
-  - {file: tablet_holder, match: '^Part Studio 2 - Part 4$', id: tablet-holder-cradle, name: Tablet holder cradle}
-  - {file: tablet_holder, match: '^Part Studio 2 - Part 5$', id: tablet-holder-screw, name: Tablet holder screw}
+  - {file: tablet_holder, match: '.', id: tablet-holder, name: Tablet holder}   # one item, printed whole
 strip_prefixes: '^(3D ?TMT|TMT3D|MG_)\s*-?\s*'

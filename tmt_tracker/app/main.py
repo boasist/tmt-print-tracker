@@ -17,7 +17,7 @@ import catalog as catalog_mod
 from ha import HomeAssistant
 from tracker import Tracker
 
-VERSION = "0.3.3"
+VERSION = "0.3.4"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
