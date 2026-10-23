@@ -130,7 +130,7 @@ TMTs to plan the next one from the start) across your printers.
 | Option | |
 |---|---|
 | `profile` | `makegood_tmt_rev_c` (built in), or your own profile file in this app's folder, e.g. `profiles/my_build.yaml`. |
-| `printers` | Leave empty to use every Bambu Lab printer. Or list `name` + `entity_prefix` (for `sensor.my_x1c_print_status` the prefix is `my_x1c`). |
+| `printers` | Leave empty to use every Bambu Lab printer, named as their devices are in Home Assistant (a default name like `H2C_31B8AP…` shows as the model). Or list `name` + `entity_prefix` (for `sensor.my_x1c_print_status` the prefix is `my_x1c`). |
 | `notify` | Notify services for phone alerts, e.g. `notify.mobile_app_my_phone`. Empty: no alerts. |
 | `alert_url` | Where tapping an alert goes. Empty: this app's page. |
 | `log_level` | `debug`, `info`, `warning` or `error`. |

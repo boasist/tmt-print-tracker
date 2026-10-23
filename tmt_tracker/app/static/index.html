@@ -17,11 +17,13 @@ main{padding:0 20px 40px;max-width:1400px;margin:0 auto}
 section{margin:18px 0}
 h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
 .row{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr))}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0;overflow-wrap:break-word}
 .notice{border-color:var(--warn)}
-.printer{display:grid;grid-template-columns:92px 1fr;gap:12px;align-items:start}
+.printer{display:grid;grid-template-columns:92px minmax(0,1fr);gap:12px;align-items:start}
+.printer>div{min-width:0;overflow-wrap:anywhere}
 .printer img{width:92px;height:92px;object-fit:contain;background:var(--chip);border-radius:8px}
-.printer .name{font-weight:600;font-size:16px}
+.printer .name{font-weight:600;font-size:16px;display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px}
+.printer .name .tag{margin:0}
 .muted{color:var(--muted)}
 .bar{height:8px;background:var(--chip);border-radius:6px;overflow:hidden;margin:8px 0 4px}
 .bar>i{display:block;height:100%;background:var(--accent);border-radius:6px;transition:width .4s}
@@ -50,7 +52,7 @@ td.slot{text-align:center;min-width:54px}
 select{max-width:100%}
 .printer{cursor:pointer}
 .printer:hover{border-color:var(--accent)}
-.printer .more{float:right;font-size:13px;font-weight:400;color:var(--muted)}
+.printer .more{margin-left:auto;font-size:13px;font-weight:400;color:var(--muted);white-space:nowrap}
 .qhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
 .qhead>b{font-size:16px}
 .qlist{list-style:none;margin:0;padding:0;display:grid;gap:6px}
@@ -59,6 +61,8 @@ select{max-width:100%}
 .qlist li.div{display:block;border:none;padding:4px 2px 0;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .qlist img{width:40px;height:40px;object-fit:contain;background:var(--chip);border-radius:6px}
 .qbtns{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.qcard{container-type:inline-size}   /* a narrow queue card puts the buttons under the plate name */
+@container (max-width:460px){.qlist li{grid-template-columns:40px minmax(0,1fr)}.qbtns{grid-column:2;justify-content:flex-start}}
 .chip{cursor:pointer;user-select:none}
 .chip.off{opacity:.5;text-decoration:line-through}
 dialog.pop{border:none;border-radius:14px;padding:0;background:var(--card);color:var(--ink);width:min(1000px,calc(100% - 32px));max-height:calc(100% - 32px);box-shadow:0 12px 48px rgba(0,0,0,.4)}
@@ -216,7 +220,7 @@ function renderPrinters(){
     if(ns) what+=`<div class="muted" style="margin-top:4px">Next: ${esc((ns.plate_name||ns.title)+(ns.custom?' · custom plate':' · plate '+ns.plate))}</div>`;
     const tag=status==='finish'?'ok':status==='failed'?'bad':active?'now':'';
     return `<div class="card printer" title="Camera and details" onclick="if(!event.target.closest('select,button'))openPrinter('${p.key}')"><img src="${esc(img)}" alt="" onerror="this.style.visibility='hidden'">
-      <div><div class="name">${esc(p.name)} <span class="tag ${tag}">${esc(status)}</span><span class="more">details ›</span></div>${what}
+      <div><div class="name"><span>${esc(p.name)}</span><span class="tag ${tag}">${esc(status)}</span><span class="more">details ›</span></div>${what}
       ${active?`<div class="bar"><i style="width:${prog}%"></i></div><div class="muted">${prog}%${isFinite(rem)?' · '+(rem>=1?rem.toFixed(1)+' h':Math.round(rem*60)+' min')+' left':''} · layer ${esc(L.current_layer||'?')}/${esc(L.total_layer_count||'?')}</div>`:''}
       </div></div>`;
   }).join(''));
@@ -331,7 +335,7 @@ function renderQueues(){
         <div><div><b>${esc(label(s))}</b></div><div class="muted" style="font-size:13px">${s.custom?'custom plate':'plate '+esc(s.plate)} · ${esc(pm(s).join(', '))} ${timeTag(p.key,e.source)}${when} ${tags}</div></div>
         <span class="qbtns"><button class="small" title="Earlier" onclick="qMove('${e.id}',-1)"${i===0?' disabled':''}>↑</button><button class="small" title="Later" onclick="qMove('${e.id}',1)"${i===q.length-1?' disabled':''}>↓</button>${
         others.map(o=>`<button class="small" title="Move to ${esc(o.name)}" onclick="qSend('${e.id}','${o.key}')">→ ${esc(o.name)}</button>`).join('')}<button class="small" title="${e.auto?'Skip this plate':'Remove'}" onclick="qRemove('${e.id}',${!!e.auto})">✕</button></span></li>`;}).join('');
-    return `<div class="card"><div class="qhead"><b>${esc(p.name)}</b><span class="muted">${q.length} plate${q.length===1?'':'s'}${known.length?` · ${hrs(total)}${untimed?` + ${untimed} not timed`:''}`:''}</span>
+    return `<div class="card qcard"><div class="qhead"><b>${esc(p.name)}</b><span class="muted">${q.length} plate${q.length===1?'':'s'}${known.length?` · ${hrs(total)}${untimed?` + ${untimed} not timed`:''}`:''}</span>
       <span style="margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap">${chips}${c.materials!=null?`<button class="small" title="Follow the loaded filament again" onclick="matAuto('${p.key}')">auto</button>`:''}
       <label class="muted" style="font-size:13px;white-space:nowrap"><input type="checkbox"${on?' checked':''} onchange="qOn('${p.key}',this.checked)"> on</label></span></div>
       ${on?(items?`<ol class="qlist">${items}</ol>`:'<div class="muted">Nothing queued.</div>'):'<div class="muted">Queue off: this printer gets no plates.</div>'}

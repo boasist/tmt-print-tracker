@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.6
+
+- Printer cards no longer overflow: long printer and file names wrap inside the card instead of running into the next
+  one (with four printers side by side the status, details link and plate menu overlapped).
+- Printers that still have the Bambu Lab integration's default name (`H2C_31B8AP…`, the model and serial number) show
+  as their model, with the serial's last 4 digits when two printers are the same model. Rename the device in Home
+  Assistant to pick your own name.
+- Print queue: in a narrow card the buttons sit under the plate name, so names no longer squeeze into a thin column.
+
 ## 0.3.5
 
 - Fix: uploading a 3MF file over 16 MB failed (Home Assistant's ingress refuses larger requests with "413"), so the

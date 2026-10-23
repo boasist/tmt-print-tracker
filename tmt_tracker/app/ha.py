@@ -4,6 +4,7 @@ no user token is needed."""
 import asyncio
 import json
 import logging
+import re
 
 import aiohttp
 
@@ -136,13 +137,21 @@ class HomeAssistant:
         with the entity ids of each printer (its own and its AMS units' and spools', by entity id prefix)."""
         ents = await self.call(type="config/entity_registry/list")
         devs = {d["id"]: d for d in await self.call(type="config/device_registry/list")}
-        found = []
+        found, serials = [], {}
         for e in ents:
             eid = e["entity_id"]
             if e.get("platform") == "bambu_lab" and eid.startswith("sensor.") and eid.endswith("_print_status") and not e.get("disabled_by"):
                 d = devs.get(e.get("device_id")) or {}
                 prefix = eid[len("sensor."):-len("_print_status")]
-                found.append({"name": d.get("name_by_user") or d.get("name") or prefix, "prefix": prefix, "model": d.get("model") or ""})
+                name = d.get("name_by_user") or d.get("name") or prefix
+                m = re.fullmatch(r"([A-Za-z0-9]+)_([0-9A-Za-z]{12,})", name)
+                if m and not d.get("name_by_user"):   # the integration's default "<MODEL>_<serial>": show the model
+                    name, serials[prefix] = d.get("model") or m.group(1), m.group(2)
+                found.append({"name": name, "prefix": prefix, "model": d.get("model") or ""})
+        names = [p["name"] for p in found]
+        for p in found:   # two printers of the same model: add the serial's last 4 digits
+            if names.count(p["name"]) > 1 and p["prefix"] in serials:
+                p["name"] += f" ·{serials[p['prefix']][-4:]}"
         return sorted(found, key=lambda p: p["name"])
 
     async def printer_entities(self, prefix):
