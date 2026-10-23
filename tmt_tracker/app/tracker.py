@@ -69,6 +69,15 @@ class Tracker:
         self._masks = {t: m for t, m in self._masks.items() if t in keep}
         pl.reconcile(self.st, self.catalog)
 
+    def rename_groups(self, rename):
+        """Groups renamed on the 3MF files page ({old: new}): the planner's setups follow."""
+        if not rename:
+            return
+        for setups in ((self.st.get("plan_cfg") or {}).get("setups") or {}).values():
+            for s in setups:
+                s["groups"] = [rename.get(x, x) for x in s.get("groups") or []]
+        self.save()
+
     def set_printers(self, info):
         """{printer key: {name, model}} from Home Assistant, for alerts, plate limits and default planner setups."""
         self.st["printer_info"] = info

@@ -7,14 +7,42 @@ queue per printer, and plans whole builds.
 
 1. Add your printers to Home Assistant with the [Bambu Lab integration](https://github.com/greghesp/ha-bambulab).
 2. Start this app and open **TMT** in the sidebar (turn on **Show in sidebar** on the app's page).
-3. Under **Files**, upload the TMT design files (`.3mf`). A notice at the top lists any file the build profile still
-   needs. Files are matched by the **Title inside the 3MF**, so their file names don't matter.
+3. Open **Manage 3MF files** and add the TMT design files (`.3mf`): press **Add 3MF files** or drop them on the page.
+   Files the build profile knows are set up automatically; they're matched by the **Title inside the 3MF**, so their
+   file names don't matter. For any other file (your own sliced projects, other versions, accessories) the page asks
+   which plates count toward a TMT, and as which parts.
 4. Print as usual. Each finished plate's parts are added to the count.
 
 There's nothing to set up first: the app creates its `files` folder itself, and large files (the ALL PARTS file is
-about 96 MB) upload in pieces. You can also copy the 3MF files into this app's folder yourself:
-`/addon_configs/<id>_tmt_tracker/files/` (shown as `app_configs` on newer Home Assistant versions), then press
-**Rescan**.
+about 96 MB) upload in pieces. Reading a big file takes a few minutes the first time on a small machine. You can also
+copy the 3MF files into this app's folder yourself: `/addon_configs/<id>_tmt_tracker/files/` (shown as `app_configs`
+on newer Home Assistant versions), then press **Refresh folder** on the 3MF files page.
+
+## The 3MF files page
+
+**Manage 3MF files** (at the top of the dashboard) shows every 3MF in the app's folder: its title, designer, the
+printer, nozzle and layers it was set up for, its filaments, and each plate with its picture, what it makes, its
+group, volume, print time per printer and how often it was printed.
+
+- **New files**: files the build profile doesn't know. Pick a group for each plate that counts toward a TMT (or
+  **+ new group…**), its filament, which printers may print it (none ticked = any) and its name. Each object on a
+  counting plate is a part: pick an existing part when it's another version of one (it then counts toward the same
+  part), or keep it as a new part and name it. A new part that's alone on its plate takes the plate's name.
+  **Printed together** is for plates that only make an item once all of them have printed. **Doesn't count toward a
+  TMT** keeps a file just recognised.
+- **Edit plates and parts** changes a file later. A file set up by the build profile follows profile updates (in new
+  versions of this app) until you save it here; from then on your settings are kept.
+- **One TMT**: the groups, in the parts table's order, each required, optional, or optional but still queued and
+  planned (like the accessories). A renamed group follows on every plate and in the planner.
+- **Parts per TMT**: rename a part, or set how many a TMT needs (clear the number to go back). "Made from" lists every
+  plate that prints a part; ★ is the one the queue uses.
+- **Design files the build profile knows**: the ones still missing. **I don't use this one** takes one off the
+  dashboard's notice.
+- **Remove file** moves a file to `files/removed` (nothing is deleted, and its settings are kept); **Put back** returns
+  it. Delete it from that folder yourself if you want it gone.
+
+What you set on this page is kept in `build.json` in the app's folder (included in Home Assistant backups). A plate is
+identified by its file's contents, so a changed version of a file starts its plates afresh; counts are kept by part.
 
 ## How a print is recognised
 
@@ -51,7 +79,7 @@ custom plate that makes more of a part than any of the design file's plates is t
 - **Parts**: every part by group, with ✓ / partial per TMT, what's printing now, and − / + to correct counts (for
   example parts printed before you started using this app, or a part that failed on a plate).
 - **Recent prints**: counted, failed, not recognised (assign) or not a TMT plate; **undo** takes a print back out.
-- **Files**: the uploaded 3MF files, what each is used as, and the build profile in use.
+- **Files**: how many 3MF files and plates there are, and the link to the 3MF files page.
 
 ## Print queue
 
@@ -153,7 +181,8 @@ On first start the built-in profiles are copied to `profiles/example_*.yaml` in 
 - `part_rules`: turn object names inside the files into part names; anything else is cleaned up automatically. A
   rule with `file` only applies to that file, for designs whose objects have generic names ("Part Studio 2 - Part 4").
 
-Part counts are kept by part id, so changing the profile or replacing a file keeps the counts.
+Part counts are kept by part id, so changing the profile or replacing a file keeps the counts. For the files you set
+up or edited on the 3MF files page, and for your group and part changes there, `build.json` wins over the profile.
 
 ## Moving counts in from elsewhere
 

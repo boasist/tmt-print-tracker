@@ -11,6 +11,9 @@ It watches your **Bambu Lab** printers, keeps the parts list for you, and plans 
 
 - **Parts list.** Every part a TMT needs (about 100 pieces), grouped the way you assemble them, with what's printed for
   each TMT you're building.
+- **Your 3MF files, in one place.** Add the design files on the app's 3MF files page and see each file's plates,
+  parts, filaments, print times and how often each plate was printed. Files the build profile knows are set up by
+  themselves; for your own sliced projects or other versions you say which plates count and as which parts.
 - **Recognises what's printing.** It works out which plate of which design file each printer is printing, from the job
   name and plate number or by comparing the printer's plate preview with your files' previews. Prints sent from
   MakerWorld or Bambu Handy are recognised too.
@@ -51,8 +54,8 @@ It watches your **Bambu Lab** printers, keeps the parts list for you, and plans 
 1. In Home Assistant: **Settings → Apps (Add-ons) → App store → ⋮ → Repositories**, add
    `https://github.com/boasist/tmt-print-tracker`.
 2. Install **TMT Print Tracker**, start it, and turn on **Show in sidebar**.
-3. Open **TMT** in the sidebar and upload your 3MF files under **Files**. The page lists any design file the build
-   profile still needs.
+3. Open **TMT** in the sidebar, then **Manage 3MF files**, and add your 3MF files. The page lists any design file the
+   build profile still needs, and asks about files it doesn't know.
 4. Optional: for phone alerts, add your phone's notify service (for example `notify.mobile_app_my_phone`) under
    **notify** in the app's options.
 

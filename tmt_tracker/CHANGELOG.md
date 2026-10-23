@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0
+
+- **3MF files page** (**Manage 3MF files** at the top of the dashboard): every file with its title, designer, the
+  printer, nozzle, layers and filaments it was set up for, and each plate with its picture, what it makes, group,
+  volume, print time per printer and times printed.
+  - Files the build profile doesn't know (your own sliced projects, other versions, accessories) show up as **new**:
+    pick which plates count toward a TMT and in which group, their filament, the printers that may print them, plate
+    names, which part each object is (an existing part, or a new one you name), and plates printed together.
+  - Edit any file later, including the profile's; a profile file follows profile updates until you save it.
+  - Groups (required / optional / optional but planned, in table order), part names and quantities per TMT.
+  - The profile's design files still missing, with **I don't use this one** to drop one from the notice.
+  - **Remove file** moves a file to `files/removed` instead of deleting it, and **Put back** returns it.
+  - Uploads by button or by dropping files on the page, in pieces with progress.
+- What you set there is kept in `build.json` in the app's folder; with no `build.json` the catalog is exactly as
+  before. Plate ids, counts, history and queues are unchanged.
+- The dashboard's notices link to the files page, including one for new files that need setting up; its Files section
+  is a summary with the link.
+- The first start after this update adds the new file details to the cache in a few seconds (the slow volume reading
+  isn't repeated).
+
 ## 0.3.6
 
 - Printer cards no longer overflow: long printer and file names wrap inside the card instead of running into the next

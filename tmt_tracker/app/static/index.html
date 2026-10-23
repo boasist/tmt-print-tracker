@@ -13,6 +13,8 @@ header{display:flex;align-items:center;gap:16px;padding:16px 20px;flex-wrap:wrap
 header h1{font-size:22px;margin:0}
 header .sub{color:var(--muted)}
 header .conn{margin-left:auto;font-size:13px;color:var(--muted)}
+header .hlink,h2 a,.notice a{color:var(--accent);text-decoration:none}
+h2 a{text-transform:none;letter-spacing:0;font-weight:400;margin-left:8px}
 main{padding:0 20px 40px;max-width:1400px;margin:0 auto}
 section{margin:18px 0}
 h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
@@ -91,6 +93,7 @@ dialog.pop::backdrop{background:rgba(0,0,0,.55)}
 <header>
   <h1>TMT Print Tracker</h1>
   <span class="sub" id="sub"></span>
+  <a class="hlink" href="files">Manage 3MF files →</a>
   <span class="conn" id="conn">loading…</span>
 </header>
 <main>
@@ -102,15 +105,11 @@ dialog.pop::backdrop{background:rgba(0,0,0,.55)}
     <h2>TMTs <span style="text-transform:none;letter-spacing:0">· planned <button class="small" onclick="setTarget(-1)">−</button> <b id="target">1</b> <button class="small" onclick="setTarget(1)">+</button></span></h2>
     <div class="row" id="builds"></div>
   </section>
-  <section><h2>Parts</h2><div class="scroll"><table id="parts"></table></div></section>
+  <section><h2>Parts <a href="files">Manage 3MF files →</a></h2><div class="scroll"><table id="parts"></table></div></section>
   <section><h2>Recent prints</h2><div class="scroll"><table class="small-text" id="hist"></table></div></section>
   <section>
-    <h2>Files</h2>
-    <div class="card" style="margin-bottom:10px">
-      <div id="profile" class="muted"></div>
-      <div style="margin-top:8px"><input type="file" id="upload" accept=".3mf" multiple> <button class="primary" onclick="upload()">Upload 3MF files</button> <button onclick="rescan()">Rescan</button> <span id="upmsg" class="muted"></span></div>
-    </div>
-    <div class="scroll"><table class="small-text" id="files"></table></div>
+    <h2>Files <a href="files">Manage 3MF files →</a></h2>
+    <div class="card" id="files"></div>
   </section>
 </main>
 <div class="toast" id="toast"></div>
@@ -190,8 +189,12 @@ function render(){
 function renderNotices(){
   const n=[];
   if(D.profile_error) n.push(`<div class="card notice"><b>Profile problem:</b> ${esc(D.profile_error)}</div>`);
-  if(D.catalog.missing&&D.catalog.missing.length) n.push(`<div class="card notice"><b>${D.catalog.missing.length} design file(s) still needed</b> — upload them under Files below:
+  if(D.catalog.missing&&D.catalog.missing.length) n.push(`<div class="card notice"><b>${D.catalog.missing.length} design file${D.catalog.missing.length>1?'s':''} still needed</b> —
+    add ${D.catalog.missing.length>1?'them':'it'} on the <a href="files">3MF files page</a>, or say there that you don't use one:
     <ul>${D.catalog.missing.map(m=>`<li>${esc(m.title)}</li>`).join('')}</ul><span class="muted">Files are matched by the Title inside the 3MF, so the file name doesn't matter.</span></div>`);
+  const fs=D.catalog.files_summary||{};
+  if((fs.new||[]).length) n.push(`<div class="card notice"><b>${fs.new.length} new 3MF file${fs.new.length>1?'s':''}</b> — say which plates count toward a TMT on the
+    <a href="files">3MF files page</a>: ${fs.new.map(esc).join(', ')}</div>`);
   if(!D.printers.length) n.push('<div class="card notice"><b>No printers.</b> Add your Bambu Lab printers to Home Assistant with the Bambu Lab integration, or list them in the add-on options.</div>');
   setHTML('notices',n.join(''));
 }
@@ -251,7 +254,7 @@ function setCell(pid){
 
 function renderParts(){
   const sl=D.summary.slots, now=nowPrinting(), counts=D.state.counts||{}, parts=cat().parts;
-  if(!parts.length){setHTML('parts','<tr><td class="muted">No parts yet: upload the design files under Files.</td></tr>');return;}
+  if(!parts.length){setHTML('parts','<tr><td class="muted">No parts yet: add the design files on the <a href="files">3MF files page</a>.</td></tr>');return;}
   const cols=6+sl.length;
   const chip=(c,q,k)=>{const v=covered(c,q,k);return v>=q?'<span class="tag ok">✓</span>':v>0?`<span class="tag warn">${v}/${q}</span>`:'<span class="tag">–</span>';};
   const nowCell=pid=>(now[pid]||[]).map(x=>`<span class="tag now">${esc(x.printer)} ${x.of?esc(x.of):'+'+x.n} · ${esc(x.progress??'?')}%</span>`).join('')+setCell(pid);
@@ -293,11 +296,11 @@ function renderHist(){
 }
 
 function renderFiles(){
-  $('profile').innerHTML=`Build profile: <b>${esc(D.profile||'—')}</b> <span class="muted">(${esc(D.profile_path)})</span> · add-on ${esc(D.version)}`;
-  const f=cat().files||[];
-  setHTML('files',f.length?'<tr><th>File</th><th>Title inside</th><th>Plates</th><th>Used as</th><th></th></tr>'+f.map(x=>`<tr><td>${esc(x.file)}</td><td>${esc(x.title||x.error||'')}</td>
-    <td>${x.plates??''}</td><td>${x.profile_file?`<span class="tag ok">${esc(x.profile_file)}</span>`:'<span class="tag">other (recognised, not counted)</span>'}</td>
-    <td><button class="small" onclick="delFile('${esc(x.file).replace(/'/g,"\\'")}')">remove</button></td></tr>`).join(''):'<tr><td class="muted">No 3MF files yet.</td></tr>');
+  const fs=D.catalog.files_summary||{}, counting=new Set(cat().sources.filter(s=>s.counts).map(s=>s.file));
+  setHTML('files',`${fs.files?`${fs.files} file${fs.files>1?'s':''}, ${fs.plates} plates; ${counting.size} file${counting.size===1?'':'s'} count toward a TMT`
+      +`${(fs.new||[]).length?` · <span class="tag warn">${fs.new.length} new</span>`:''}${(fs.errors||[]).length?` · <span class="tag bad">${fs.errors.length} can't be read</span>`:''}`
+      :'No 3MF files yet.'} <a href="files" style="color:var(--accent);text-decoration:none;margin-left:6px">Manage 3MF files →</a>
+    <div class="muted" style="margin-top:6px;font-size:13px">Build profile: ${esc(D.profile||'—')} (${esc(D.profile_path)}) · add-on ${esc(D.version)}</div>`);
 }
 
 // ------------------------------------------------------------------ print queue
@@ -546,29 +549,6 @@ async function saveCustom(){
   if(t.printer) changing[t.printer]=false;
   const r=await act('assign_custom',{yields:y,...t}); if(r.ok) toast(`Counted as ${r.label}, and remembered for reprints`);
 }
-async function rescan(){await post('api/rescan');toast('Files rescanned');}
-async function delFile(file){if(confirm(`Remove ${file}? Counts are kept.`)) await post('api/delete_file',{file});}
-const PIECE=8*1024*1024;   // Home Assistant's ingress refuses request bodies over 16 MiB, so files go up in pieces
-async function uploadOne(f,i,n){
-  const id=Math.random().toString(36).slice(2,10)+Date.now().toString(36), mb=x=>(x/1048576).toFixed(0);
-  for(let off=0;;off+=PIECE){
-    $('upmsg').textContent=`uploading ${n>1?`${i+1} of ${n}, `:''}${f.name}: ${mb(Math.min(off,f.size))} of ${mb(f.size)} MB…`;
-    const q=new URLSearchParams({upload:id,name:f.name,offset:off,size:f.size});
-    const res=await fetch('api/upload_part?'+q,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:f.slice(off,off+PIECE)});
-    if(!res.ok) throw new Error(`${f.name}: HTTP ${res.status}`);
-    const r=await res.json(); if(!r.ok) throw new Error(r.error);
-    if(r.saved) return r;
-  }
-}
-async function upload(){
-  const files=[...$('upload').files]; if(!files.length){toast('Choose one or more .3mf files first');return;}
-  let saved=0;
-  try{for(const [i,f] of files.entries()){await uploadOne(f,i,files.length); saved++;}
-    $('upmsg').textContent=`saved ${saved} file(s)`; $('upload').value='';}
-  catch(e){$('upmsg').textContent=`${saved?`saved ${saved} file(s); `:''}upload failed: ${e.message}`;}
-  await load();
-}
-
 $('pop').addEventListener('click',e=>{if(e.target===$('pop')) $('pop').close();});   // click outside the box closes it
 $('pop').addEventListener('close',()=>{camStop(); popKey=null; camFor=null; clearInterval(popTimer);});
 load(); setInterval(load,3000);

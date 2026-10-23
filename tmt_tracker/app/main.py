@@ -17,11 +17,12 @@ import catalog as catalog_mod
 from ha import HomeAssistant
 from tracker import Tracker
 
-VERSION = "0.3.6"
+VERSION = "0.4.0"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
 FILES = CONFIG / "files"
+BUILD = CONFIG / "build.json"          # what you set on the 3MF files page (catalog.py explains it)
 OPTIONS = DATA / "options.json"
 LIVE_SENSORS = ("print_status", "task_name", "gcode_filename", "print_progress", "remaining_time", "current_layer",
                 "total_layer_count", "end_time", "current_stage", "start_time")
@@ -40,6 +41,7 @@ class App:
         self.lock = asyncio.Lock()
         self.printers = []            # [{name, prefix, model, entities}]
         self.catalog = {}
+        self.profile = None
         self.profile_path = None
         self.profile_error = None
         self.ha = None
@@ -61,20 +63,22 @@ class App:
         return APP / "profiles" / f"{name}.yaml"
 
     def load_catalog(self):
-        """(profile path, catalog, error). Reading a new 3MF takes a while (minutes for a big one on a small machine),
-        so this runs in a worker thread; files already read come from the cache."""
+        """(profile path, profile, catalog, error). Reading a new 3MF takes a while (minutes for a big one on a small
+        machine), so this runs in a worker thread; files already read come from the cache."""
         FILES.mkdir(parents=True, exist_ok=True)
         path = None
         try:
             path = self.resolve_profile()
             profile = catalog_mod.load_profile(path)
-            return path, catalog_mod.build(profile, FILES, DATA / "thumbs", DATA / "files_cache.json"), None
+            return path, profile, catalog_mod.build(profile, FILES, DATA / "thumbs", DATA / "files_cache.json", BUILD), None
         except Exception as e:
             log.error("profile %s: %s", path, e)
-            return path, {"profile": "", "parts": [], "alternatives": [], "sources": [], "files": [], "missing": []}, str(e)
+            return path, None, {"profile": "", "parts": [], "alternatives": [], "sources": [], "files": [], "missing": [],
+                                "skipped": [], "removed": [], "gone": [],
+                                "cfg": {"groups": [], "saved_groups": False, "parts": {}, "rules": [], "files": {}}}, str(e)
 
     async def rebuild_catalog(self):
-        self.profile_path, self.catalog, self.profile_error = await asyncio.to_thread(self.load_catalog)
+        self.profile_path, self.profile, self.catalog, self.profile_error = await asyncio.to_thread(self.load_catalog)
         self.tracker.set_catalog(self.catalog)
         self._warming = asyncio.create_task(asyncio.to_thread(self.tracker.warm_masks))
 
@@ -237,9 +241,86 @@ class App:
         return web.json_response({
             "version": VERSION, "connected": bool(self.ha and self.ha.connected),
             "profile": self.catalog.get("profile"), "profile_path": str(self.profile_path), "profile_error": self.profile_error,
-            "catalog": {k: self.catalog.get(k) for k in ("parts", "alternatives", "sources", "files", "missing")},
+            "catalog": {**{k: self.catalog.get(k) for k in ("parts", "alternatives", "sources", "missing")},
+                        "files_summary": self.files_summary()},
             "state": self.tracker.published(), "alerts": bool(self.notify_targets()),
             "summary": self.tracker.summary(), "printers": self.live()})
+
+    def files_summary(self):
+        rows = self.catalog.get("files") or []
+        return {"files": len(rows), "plates": sum(len(f.get("plates") or []) for f in rows),
+                "new": [f["file"] for f in rows if not f["classified"] and not f.get("error")],
+                "errors": [f["file"] for f in rows if f.get("error")]}
+
+    async def h_files(self, request):
+        """Everything the 3MF files page shows."""
+        return web.json_response({
+            "version": VERSION, "profile": self.catalog.get("profile"), "profile_path": str(self.profile_path),
+            "profile_error": self.profile_error, "catalog": self.catalog, "state": self.tracker.published(),
+            "printers": [{"key": p["prefix"], "name": p["name"], "model": p.get("model")} for p in self.printers]})
+
+    async def h_files_action(self, request):
+        """The 3MF files page's changes: file_save, part_save, groups_save, profile_skip, file_remove, file_restore and
+        scan. Each rebuilds the catalog and says what that changed for a TMT."""
+        a = await request.json()
+        cmd = a.pop("cmd", "")
+        if cmd not in ("file_save", "part_save", "groups_save", "profile_skip", "file_remove", "file_restore", "scan"):
+            return web.json_response({"ok": False, "error": f"unknown command {cmd!r}"}, status=400)
+        async with self.lock:
+            before = self.catalog
+            try:
+                if cmd in ("file_save", "part_save", "groups_save", "profile_skip"):
+                    if self.profile is None:
+                        raise ValueError(f"fix the build profile first: {self.profile_error}")
+                    cfg = catalog_mod.load_cfg(BUILD)
+                    if cmd == "file_save":
+                        catalog_mod.file_save(self.profile, cfg, before, a, [p["prefix"] for p in self.printers])
+                    elif cmd == "part_save":
+                        catalog_mod.part_save(cfg, before, a)
+                    elif cmd == "groups_save":
+                        self.tracker.rename_groups(catalog_mod.groups_save(self.profile, cfg, before, a))
+                    else:
+                        catalog_mod.profile_skip(self.profile, cfg, a)
+                    catalog_mod.save_cfg(BUILD, cfg)
+                elif cmd == "file_remove":   # moved aside, never deleted; its settings stay in build.json
+                    name = Path(str(a.get("file", ""))).name
+                    if not name.lower().endswith(".3mf") or not (FILES / name).is_file():
+                        raise ValueError("that file isn't in the folder")
+                    (FILES / "removed").mkdir(exist_ok=True)
+                    dest, n = FILES / "removed" / name, 1
+                    while dest.exists():   # an older removed copy of the same name stays too
+                        n += 1
+                        dest = FILES / "removed" / f"{Path(name).stem} ({n}).3mf"
+                    os.replace(FILES / name, dest)
+                elif cmd == "file_restore":
+                    name = Path(str(a.get("file", ""))).name
+                    if not (FILES / "removed" / name).is_file():
+                        raise ValueError("that file isn't in removed")
+                    if (FILES / name).exists():
+                        raise ValueError(f"there's already a {name} in the folder")
+                    os.replace(FILES / "removed" / name, FILES / name)
+            except (ValueError, OSError) as e:
+                return web.json_response({"ok": False, "error": str(e)})
+            await self.rebuild_catalog()
+        return web.json_response({"ok": True, **self.change_notes(before)})
+
+    def change_notes(self, before):
+        """What a catalog rebuild changed for a TMT (parts leaving or joining, pieces per TMT), new and unreadable files."""
+        counts, after = self.tracker.st.get("counts") or {}, self.catalog
+        b, a = {p["id"]: p for p in before.get("parts") or []}, {p["id"]: p for p in after.get("parts") or []}
+        notes = []
+        for pid, p in b.items():
+            if pid not in a:
+                n = counts.get(pid, 0)
+                notes.append(f"{p['name']} is no longer in the build" + (f" (its {n} printed stay in the counts)" if n else ""))
+        added = [p["name"] for pid, p in a.items() if pid not in b]
+        if added:
+            notes.append("new in the build: " + ", ".join(added))
+        pieces = lambda c: sum(p["qty"] for p in c.get("parts") or [] if not p["optional"] and not p.get("alt"))
+        if before.get("parts") and pieces(before) != pieces(after):
+            notes.append(f"a TMT is now {pieces(after)} pieces (was {pieces(before)})")
+        fs = self.files_summary()
+        return {"notes": notes, "new": fs["new"], "errors": [f"{f['file']}: {f['error']}" for f in after.get("files") or [] if f.get("error")]}
 
     async def h_printer(self, request):
         """Every entity of one printer (states and attributes), for the details pop-up."""
@@ -406,25 +487,20 @@ class App:
             return web.json_response({"ok": False, "error": f"{name}: got more than {size} bytes; upload it again"})
         if have < size:
             return web.json_response({"ok": True, "received": have})
+        replaced = (FILES / name).exists()
         os.replace(tmp, FILES / name)
         async with self.lock:
+            before = self.catalog
             await self.rebuild_catalog()
-        return web.json_response({"ok": True, "received": have, "saved": [name], "missing": self.catalog.get("missing")})
+        res = self.change_notes(before)
+        if replaced:
+            res["notes"].insert(0, f"{name} replaced the file of the same name (its settings stay)")
+        return web.json_response({"ok": True, "received": have, "saved": [name], "missing": self.catalog.get("missing"), **res})
 
     def drop_stale_uploads(self):
         for tmp in FILES.glob(".upload-*.part"):
             if time.time() - tmp.stat().st_mtime > 86400:
                 tmp.unlink()
-
-    async def h_delete_file(self, request):
-        name = Path((await request.json()).get("file", "")).name
-        path = FILES / name
-        if not name.lower().endswith(".3mf") or not path.exists():
-            return web.json_response({"ok": False, "error": "no such file"})
-        path.unlink()
-        async with self.lock:
-            await self.rebuild_catalog()
-        return web.json_response({"ok": True})
 
     async def h_rescan(self, request):
         async with self.lock:
@@ -455,6 +531,7 @@ class App:
             token = s6_env.read_text().strip()
         app = web.Application(client_max_size=512 * 1024 * 1024)
         app.add_routes([web.get("/", self.page("index.html")), web.get("/plan", self.page("plan.html")),
+                        web.get("/files", self.page("files.html")),
                         web.get("/api/data", self.h_data), web.post("/api/action", self.h_action),
                         web.get("/api/printer/{key}", self.h_printer),
                         web.get("/api/camera/{key}/config", self.h_cam_config), web.post("/api/camera/{key}/offer", self.h_cam_offer),
@@ -462,7 +539,7 @@ class App:
                         web.post("/api/camera/session/{sid}/ping", self.h_cam_ping),
                         web.post("/api/camera/session/{sid}/close", self.h_cam_close),
                         web.post("/api/upload", self.h_upload), web.post("/api/upload_part", self.h_upload_part),
-                        web.post("/api/delete_file", self.h_delete_file),
+                        web.get("/api/files", self.h_files), web.post("/api/files_action", self.h_files_action),
                         web.post("/api/rescan", self.h_rescan),
                         web.get("/thumbs/{name}", self.static_from(DATA / "thumbs")),
                         web.get("/covers/{name}", self.static_from(DATA / "covers"))])
