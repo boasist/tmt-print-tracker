@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 import planning as pl
@@ -43,12 +44,29 @@ class Tracker:
             self.st = {"target": 1, "assembled": 0, "counts": {}, "printers": {}, "aliases": {}, "log": [], "next_log": 1}
 
     # ------------------------------------------------------------ plumbing
+    def warm_masks(self):
+        """Decode the plate outlines for picture matching ahead, in a worker thread: decoding is pure Python and takes
+        ~40 s for 48 plates on a small machine, which would hold up the page at the next picture match. Thumbnails are
+        named by their file's content, so a decoded outline stays valid across rebuilds."""
+        t0, n = time.monotonic(), 0
+        for s in list(self.catalog["sources"]):
+            t = s.get("thumb")
+            if t and t not in self._masks and (self.thumbs / t).exists():
+                try:
+                    self._masks[t] = alpha_mask(self.thumbs / t)
+                    n += 1
+                except Exception as e:
+                    log.warning("plate picture %s: %s", t, e)
+        if n:
+            log.info("read %d plate pictures for matching in %.0f s", n, time.monotonic() - t0)
+
     def set_catalog(self, catalog):
         """The catalog from the profile and files, plus your custom plates (plates you combined or changed)."""
         known = {p["id"] for p in catalog["parts"]}   # a custom plate whose parts left the catalog is ignored
         self.catalog = dict(catalog, sources=catalog["sources"] + [s for s in self.st.get("custom_sources", [])
                                                                    if set(s["yields"]) <= known])
-        self._masks = {}
+        keep = {s.get("thumb") for s in self.catalog["sources"]}
+        self._masks = {t: m for t, m in self._masks.items() if t in keep}
         pl.reconcile(self.st, self.catalog)
 
     def set_printers(self, info):
@@ -323,6 +341,7 @@ class Tracker:
                 src["thumb"] = "custom-" + re.sub(r"[^a-z0-9]+", "-", sid.lower()).strip("-") + ".png"
                 self.thumbs.mkdir(parents=True, exist_ok=True)
                 (self.thumbs / src["thumb"]).write_bytes(cover.read_bytes())
+                self._masks.pop(src["thumb"], None)
             self.st["custom_sources"].append(src)
             self.catalog["sources"].append(src)
         res = self.assign(sid, log_id=log_id, printer=printer)

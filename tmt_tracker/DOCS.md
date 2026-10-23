@@ -11,8 +11,10 @@ queue per printer, and plans whole builds.
    needs. Files are matched by the **Title inside the 3MF**, so their file names don't matter.
 4. Print as usual. Each finished plate's parts are added to the count.
 
-You can also copy the 3MF files into this app's folder yourself: `/addon_configs/<id>_tmt_tracker/files/` (shown as
-`app_configs` on newer Home Assistant versions), then press **Rescan**.
+There's nothing to set up first: the app creates its `files` folder itself, and large files (the ALL PARTS file is
+about 96 MB) upload in pieces. You can also copy the 3MF files into this app's folder yourself:
+`/addon_configs/<id>_tmt_tracker/files/` (shown as `app_configs` on newer Home Assistant versions), then press
+**Rescan**.
 
 ## How a print is recognised
 

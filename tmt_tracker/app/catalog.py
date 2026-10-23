@@ -5,6 +5,7 @@ and a preview per plate (Metadata/plate_N.png). The profile says which files (by
 build, and how many of each part a build needs.
 """
 import hashlib
+import json
 import logging
 import re
 import zipfile
@@ -21,41 +22,43 @@ def _meta(el):
     return {m.get("key"): m.get("value") for m in el.findall("metadata")}
 
 
-def _mesh_volume(z, path, objectid, cache):
-    """Volume (mm³) of one mesh object in a 3MF part file, from its triangles (sum of signed tetrahedra)."""
-    key = (path, objectid)
-    if key not in cache:
-        root = ET.fromstring(z.read(path.lstrip("/")))
-        ns = root.tag.split("}")[0].strip("{")
-        vol = 0.0
-        for obj in root.iter(f"{{{ns}}}object"):
-            if obj.get("id") != objectid:
-                continue
-            mesh = obj.find(f"{{{ns}}}mesh")
-            if mesh is None:
-                break
-            v = [(float(x.get("x")), float(x.get("y")), float(x.get("z"))) for x in mesh.find(f"{{{ns}}}vertices")]
-            for tr in mesh.find(f"{{{ns}}}triangles"):
-                a, b, c = v[int(tr.get("v1"))], v[int(tr.get("v2"))], v[int(tr.get("v3"))]
-                vol += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
-                        + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6
-        cache[key] = abs(vol)
-    return cache[key]
+def _mesh_volumes(z, path):
+    """Volume (mm³) of each mesh object in one 3MF model file, from its triangles (sum of signed tetrahedra). Streamed:
+    the big part files are 60+ MB of XML, which as a tree takes about 1 GB."""
+    vols, verts, vol, oid = {}, [], 0.0, None
+    for ev, el in ET.iterparse(z.open(path.lstrip("/")), events=("start", "end")):
+        tag = el.tag.rsplit("}", 1)[-1]
+        if ev == "start":
+            if tag == "object":
+                oid, verts, vol = el.get("id"), [], 0.0
+        elif tag == "vertex":
+            verts.append((float(el.get("x")), float(el.get("y")), float(el.get("z"))))
+        elif tag == "triangle":
+            a, b, c = verts[int(el.get("v1"))], verts[int(el.get("v2"))], verts[int(el.get("v3"))]
+            vol += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+                    + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6
+        elif tag == "object":
+            vols[oid], verts = abs(vol), []
+        elif tag in ("vertices", "triangles"):
+            el.clear()
+    return vols
 
 
 def _object_volumes(z, model):
     """Build object id -> volume (cm³): its component meshes, each scaled by its transform's determinant. Used for a
     rough print-time guess before a printer has printed a plate."""
     ns = {"m": model.tag.split("}")[0].strip("{"), "p": "http://schemas.microsoft.com/3dmanufacturing/production/2015/06"}
-    cache, out = {}, {}
+    meshes, out = {}, {}
     for obj in model.findall("m:resources/m:object", ns):
         total = 0.0
         try:
             for comp in obj.findall("m:components/m:component", ns):
                 path = comp.get(f"{{{ns['p']}}}path") or "/3D/3dmodel.model"
+                if path not in meshes:
+                    meshes[path] = _mesh_volumes(z, path)
                 m = [float(x) for x in (comp.get("transform") or "1 0 0 0 1 0 0 0 1 0 0 0").split()]
                 det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6])
-                total += _mesh_volume(z, path, comp.get("objectid"), cache) * abs(det)
+                total += meshes[path].get(comp.get("objectid"), 0.0) * abs(det)
         except (KeyError, ValueError, ET.ParseError) as e:
             log.debug("volume of object %s: %s", obj.get("id"), e)
         out[obj.get("id")] = total / 1000
@@ -63,7 +66,8 @@ def _object_volumes(z, model):
 
 
 def read_3mf(path):
-    """Title, plates ({index: {name, objects: Counter, volume_cm3}}) and plate previews ({index: png bytes}) of a 3MF."""
+    """Title, plates ({index: {name, objects: Counter, volume_cm3}}) and plate previews ({index: png bytes}) of a 3MF.
+    Slow for big files (the volumes), so build() caches everything but the previews."""
     with zipfile.ZipFile(path) as z:
         names = set(z.namelist())
         model = ET.fromstring(z.read("3D/3dmodel.model"))
@@ -117,14 +121,46 @@ def load_profile(path):
     return profile
 
 
-def build(profile, files_dir, thumbs_dir):
+def _sha1(path):
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _read_cached(path, cache, thumbs_dir):
+    """read_3mf through the cache (by size and modification time): {digest, title, plates, thumbs}. Writes the plate
+    previews as <digest>_plate_<n>.png when they're missing."""
+    st = path.stat()
+    c = cache.get(path.name)
+    if not (c and c.get("size") == st.st_size and c.get("mtime") == st.st_mtime_ns):
+        f = read_3mf(path)
+        c = {"size": st.st_size, "mtime": st.st_mtime_ns, "digest": _sha1(path)[:10], "title": f["title"],
+             "plates": {str(i): {**pl, "objects": dict(pl["objects"])} for i, pl in f["plates"].items()},
+             "thumbs": sorted(f["thumbs"])}
+        for idx, png in f["thumbs"].items():
+            (thumbs_dir / f"{c['digest']}_plate_{idx}.png").write_bytes(png)
+        cache[path.name] = c
+    elif any(not (thumbs_dir / f"{c['digest']}_plate_{i}.png").exists() for i in c["thumbs"]):
+        with zipfile.ZipFile(path) as z:
+            for i in c["thumbs"]:
+                (thumbs_dir / f"{c['digest']}_plate_{i}.png").write_bytes(z.read(f"Metadata/plate_{i}.png"))
+    return {"digest": c["digest"], "title": c["title"], "thumbs": set(c["thumbs"]),
+            "plates": {int(i): {**pl, "objects": Counter(pl["objects"])} for i, pl in c["plates"].items()}}
+
+
+def build(profile, files_dir, thumbs_dir, cache_path=None):
     """The catalog: parts per build, alternatives, every plate of every 3MF (sources), and which profile files are
-    present or missing."""
+    present or missing. cache_path keeps what was read from each file, so only new or changed files are read."""
     files_dir, thumbs_dir = Path(files_dir), Path(thumbs_dir)
     thumbs_dir.mkdir(parents=True, exist_ok=True)
-    for old in thumbs_dir.glob("*.png"):
-        if not old.name.startswith("custom-"):   # custom plates' pictures (tracker.assign_custom) stay
-            old.unlink()
+    cache = {}
+    if cache_path and Path(cache_path).exists():
+        try:
+            cache = json.loads(Path(cache_path).read_text())
+        except ValueError:
+            log.warning("ignoring an unreadable %s", cache_path)
     namer = PartNamer(profile)
     wanted = {key: (f.get("title") or "").strip().lower() for key, f in profile["files"].items()}
     counting = {}   # (file key, plate) -> plate rule
@@ -135,7 +171,7 @@ def build(profile, files_dir, thumbs_dir):
     parts, sources, files, found = {}, [], [], {}
     for path in sorted(files_dir.glob("*.3mf")):
         try:
-            f = read_3mf(path)
+            f = _read_cached(path, cache, thumbs_dir)
         except Exception as e:
             log.warning("can't read %s: %s", path.name, e)
             files.append({"file": path.name, "error": str(e)})
@@ -146,7 +182,7 @@ def build(profile, files_dir, thumbs_dir):
             key = None
         if key:
             found[key] = path.name
-        digest = hashlib.sha1(path.read_bytes()).hexdigest()[:10]
+        digest = f["digest"]
         files.append({"file": path.name, "title": f["title"], "profile_file": key, "plates": len(f["plates"])})
         for idx, pl in sorted(f["plates"].items()):
             rule = counting.get((key, idx)) if key else None
@@ -171,16 +207,22 @@ def build(profile, files_dir, thumbs_dir):
                                                "optional": bool(rule.get("optional")), "plan": bool(rule.get("plan")),
                                                "material": rule.get("material", default_material)})
                     p["qty"] = max(p["qty"], n)
-            thumb = None
-            if idx in f["thumbs"]:
-                thumb = f"{digest}_plate_{idx}.png"
-                (thumbs_dir / thumb).write_bytes(f["thumbs"][idx])
+            thumb = f"{digest}_plate_{idx}.png" if idx in f["thumbs"] else None
             sources.append({"id": f"{digest}#{idx}", "file": path.name, "title": f["title"], "plate": idx,
                             "plate_name": pl["name"], "counts": rule is not None, "group": rule["group"] if rule else None,
                             "yields": dict(yields), "thumb": thumb, "volume_cm3": pl.get("volume_cm3"),
                             **({"printer_models": rule["printer_models"]} if rule and rule.get("printer_models") else {}),
                             **({"set": {"id": f"{digest}#{'+'.join(map(str, rule['plates']))}",
                                         "plates": [f"{digest}#{i}" for i in rule["plates"]]}} if together else {})})
+    keep = {s["thumb"] for s in sources if s["thumb"]}
+    for old in thumbs_dir.glob("*.png"):
+        if old.name not in keep and not old.name.startswith("custom-"):   # custom plates' pictures (tracker.assign_custom) stay
+            old.unlink()
+    if cache_path:
+        present = {f["file"] for f in files}
+        tmp = Path(cache_path).with_suffix(".tmp")
+        tmp.write_text(json.dumps({k: v for k, v in cache.items() if k in present}))
+        tmp.replace(cache_path)
     for pid, q in (profile.get("quantities") or {}).items():
         if pid in parts:
             parts[pid]["qty"] = int(q)

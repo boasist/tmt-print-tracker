@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.5
+
+- Fix: uploading a 3MF file over 16 MB failed (Home Assistant's ingress refuses larger requests with "413"), so the
+  ALL PARTS file and the tablet holder couldn't be added from the page. Files now go up in 8 MB pieces, with progress.
+- What the app reads from each 3MF is kept (`files_cache.json` in its storage), so it starts in seconds and adding a
+  file only reads that file. Before, every start and every file change re-read all of them: about 4 minutes for the
+  ALL PARTS file on a small x86 machine, with the page frozen meanwhile. Reading now happens in the background, and
+  big part files are streamed (about half the memory).
+- The plate pictures used to recognise a print are prepared in the background and kept across file changes. Before,
+  the first picture match after a start or a file change froze the page for up to a minute and a half.
+- The first start after this update reads every file once more (a few minutes for the ALL PARTS file).
+
 ## 0.3.4
 
 - The tablet holder is one item, like the cup holder. Its file splits it over two plates; the tablet holder counts

@@ -17,7 +17,7 @@ import catalog as catalog_mod
 from ha import HomeAssistant
 from tracker import Tracker
 
-VERSION = "0.3.4"
+VERSION = "0.3.5"
 APP = Path(__file__).resolve().parent
 DATA = Path("/data")                  # add-on private storage (state, thumbnails, covers)
 CONFIG = Path("/config")              # this add-on's folder in addon_configs: profiles/ and files/
@@ -45,6 +45,7 @@ class App:
         self.ha = None
         self._pending = {}
         self.cams = {}                # camera WebRTC sessions: subscription id -> {printer, last, candidates}
+        self._warming = None          # the background task decoding plate outlines (tracker.warm_masks)
 
     # ------------------------------------------------------------ setup
     def resolve_profile(self):
@@ -59,18 +60,23 @@ class App:
             return CONFIG / name.lstrip("/")
         return APP / "profiles" / f"{name}.yaml"
 
-    def rebuild_catalog(self):
+    def load_catalog(self):
+        """(profile path, catalog, error). Reading a new 3MF takes a while (minutes for a big one on a small machine),
+        so this runs in a worker thread; files already read come from the cache."""
         FILES.mkdir(parents=True, exist_ok=True)
+        path = None
         try:
-            self.profile_path = self.resolve_profile()
-            profile = catalog_mod.load_profile(self.profile_path)
-            self.catalog = catalog_mod.build(profile, FILES, DATA / "thumbs")
-            self.profile_error = None
+            path = self.resolve_profile()
+            profile = catalog_mod.load_profile(path)
+            return path, catalog_mod.build(profile, FILES, DATA / "thumbs", DATA / "files_cache.json"), None
         except Exception as e:
-            log.error("profile %s: %s", self.profile_path, e)
-            self.profile_error = str(e)
-            self.catalog = {"profile": "", "parts": [], "alternatives": [], "sources": [], "files": [], "missing": []}
+            log.error("profile %s: %s", path, e)
+            return path, {"profile": "", "parts": [], "alternatives": [], "sources": [], "files": [], "missing": []}, str(e)
+
+    async def rebuild_catalog(self):
+        self.profile_path, self.catalog, self.profile_error = await asyncio.to_thread(self.load_catalog)
         self.tracker.set_catalog(self.catalog)
+        self._warming = asyncio.create_task(asyncio.to_thread(self.tracker.warm_masks))
 
     async def entity_ids(self):
         found = await self.ha.bambu_printers()
@@ -348,13 +354,18 @@ class App:
         return web.Response(body=body, content_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     # ------------------------------------------------------------ files
+    @staticmethod
+    def upload_name(filename):
+        return re.sub(r"[^A-Za-z0-9 ._()+&-]", "_", Path(filename or "").name).lstrip(".")
+
     async def h_upload(self, request):
+        """Whole files in one multipart request. Ingress refuses bodies over 16 MiB, so the page uses h_upload_part."""
         reader = await request.multipart()
         saved = []
         while (part := await reader.next()) is not None:
             if not part.filename:
                 continue
-            name = re.sub(r"[^A-Za-z0-9 ._()+&-]", "_", Path(part.filename).name)
+            name = self.upload_name(part.filename)
             if not name.lower().endswith(".3mf"):
                 return web.json_response({"ok": False, "error": f"{name}: only .3mf files"})
             FILES.mkdir(parents=True, exist_ok=True)
@@ -365,8 +376,45 @@ class App:
             os.replace(tmp, FILES / name)
             saved.append(name)
         async with self.lock:
-            self.rebuild_catalog()
+            await self.rebuild_catalog()
         return web.json_response({"ok": True, "saved": saved, "missing": self.catalog.get("missing")})
+
+    async def h_upload_part(self, request):
+        """One piece of a file (raw body), in order: ?upload=<id>&name=<file>&offset=<bytes so far>&size=<file size>.
+        Pieces collect in a hidden file next to the 3MFs; the last one moves it into place."""
+        q = request.query
+        upload, name = q.get("upload", ""), self.upload_name(q.get("name"))
+        try:
+            offset, size = int(q.get("offset", "")), int(q.get("size", ""))
+        except ValueError:
+            return web.json_response({"ok": False, "error": "offset and size must be numbers"})
+        if not re.fullmatch(r"[a-z0-9]{8,32}", upload):
+            return web.json_response({"ok": False, "error": "bad upload id"})
+        if not name.lower().endswith(".3mf"):
+            return web.json_response({"ok": False, "error": f"{name}: only .3mf files"})
+        FILES.mkdir(parents=True, exist_ok=True)
+        tmp = FILES / f".upload-{upload}.part"
+        have = tmp.stat().st_size if tmp.exists() else 0
+        if offset != have and offset != 0:
+            return web.json_response({"ok": False, "error": f"{name}: piece at {offset}, expected {have}; upload it again"})
+        with open(tmp, "wb" if offset == 0 else "ab") as f:
+            async for chunk in request.content.iter_chunked(1 << 20):
+                f.write(chunk)
+        have = tmp.stat().st_size
+        if have > size:
+            tmp.unlink()
+            return web.json_response({"ok": False, "error": f"{name}: got more than {size} bytes; upload it again"})
+        if have < size:
+            return web.json_response({"ok": True, "received": have})
+        os.replace(tmp, FILES / name)
+        async with self.lock:
+            await self.rebuild_catalog()
+        return web.json_response({"ok": True, "received": have, "saved": [name], "missing": self.catalog.get("missing")})
+
+    def drop_stale_uploads(self):
+        for tmp in FILES.glob(".upload-*.part"):
+            if time.time() - tmp.stat().st_mtime > 86400:
+                tmp.unlink()
 
     async def h_delete_file(self, request):
         name = Path((await request.json()).get("file", "")).name
@@ -375,12 +423,12 @@ class App:
             return web.json_response({"ok": False, "error": "no such file"})
         path.unlink()
         async with self.lock:
-            self.rebuild_catalog()
+            await self.rebuild_catalog()
         return web.json_response({"ok": True})
 
     async def h_rescan(self, request):
         async with self.lock:
-            self.rebuild_catalog()
+            await self.rebuild_catalog()
         return web.json_response({"ok": True, "missing": self.catalog.get("missing")})
 
     def static_from(self, folder):
@@ -399,7 +447,8 @@ class App:
 
     # ------------------------------------------------------------ run
     async def run(self):
-        self.rebuild_catalog()
+        await self.rebuild_catalog()
+        self.drop_stale_uploads()
         token = os.environ.get("SUPERVISOR_TOKEN")
         s6_env = Path("/run/s6/container_environment/SUPERVISOR_TOKEN")   # if started without with-contenv
         if not token and s6_env.exists():
@@ -412,7 +461,8 @@ class App:
                         web.post("/api/camera/{key}/hls", self.h_cam_hls), web.get("/api/camera/{key}/still", self.h_cam_still),
                         web.post("/api/camera/session/{sid}/ping", self.h_cam_ping),
                         web.post("/api/camera/session/{sid}/close", self.h_cam_close),
-                        web.post("/api/upload", self.h_upload), web.post("/api/delete_file", self.h_delete_file),
+                        web.post("/api/upload", self.h_upload), web.post("/api/upload_part", self.h_upload_part),
+                        web.post("/api/delete_file", self.h_delete_file),
                         web.post("/api/rescan", self.h_rescan),
                         web.get("/thumbs/{name}", self.static_from(DATA / "thumbs")),
                         web.get("/covers/{name}", self.static_from(DATA / "covers"))])

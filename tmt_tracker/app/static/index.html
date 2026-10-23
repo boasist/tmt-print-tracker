@@ -544,13 +544,24 @@ async function saveCustom(){
 }
 async function rescan(){await post('api/rescan');toast('Files rescanned');}
 async function delFile(file){if(confirm(`Remove ${file}? Counts are kept.`)) await post('api/delete_file',{file});}
+const PIECE=8*1024*1024;   // Home Assistant's ingress refuses request bodies over 16 MiB, so files go up in pieces
+async function uploadOne(f,i,n){
+  const id=Math.random().toString(36).slice(2,10)+Date.now().toString(36), mb=x=>(x/1048576).toFixed(0);
+  for(let off=0;;off+=PIECE){
+    $('upmsg').textContent=`uploading ${n>1?`${i+1} of ${n}, `:''}${f.name}: ${mb(Math.min(off,f.size))} of ${mb(f.size)} MB…`;
+    const q=new URLSearchParams({upload:id,name:f.name,offset:off,size:f.size});
+    const res=await fetch('api/upload_part?'+q,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:f.slice(off,off+PIECE)});
+    if(!res.ok) throw new Error(`${f.name}: HTTP ${res.status}`);
+    const r=await res.json(); if(!r.ok) throw new Error(r.error);
+    if(r.saved) return r;
+  }
+}
 async function upload(){
-  const files=$('upload').files; if(!files.length){toast('Choose one or more .3mf files first');return;}
-  const fd=new FormData(); for(const f of files) fd.append('file',f,f.name);
-  $('upmsg').textContent='uploading…';
-  try{const r=await (await fetch('api/upload',{method:'POST',body:fd})).json();
-    $('upmsg').textContent=r.ok?`saved ${r.saved.length} file(s)`:'failed: '+r.error; $('upload').value='';}
-  catch(e){$('upmsg').textContent='upload failed';}
+  const files=[...$('upload').files]; if(!files.length){toast('Choose one or more .3mf files first');return;}
+  let saved=0;
+  try{for(const [i,f] of files.entries()){await uploadOne(f,i,files.length); saved++;}
+    $('upmsg').textContent=`saved ${saved} file(s)`; $('upload').value='';}
+  catch(e){$('upmsg').textContent=`${saved?`saved ${saved} file(s); `:''}upload failed: ${e.message}`;}
   await load();
 }
 
